@@ -90,7 +90,7 @@ export class Drawing {
         points.at(-1)!.y - points[0].y,
       ) < 25
     ) {
-      this.message("Draw a longer line toward a teammate or the goal.");
+      this.message("Draw a longer line in the direction you want to kick.");
       return;
     }
     this.submit(points);
@@ -100,20 +100,16 @@ export class Drawing {
       start = points[0],
       end = points.at(-1)!;
     const ground = this.view.unproject(end.x, end.y);
-    if (!ground || !Number.isFinite(ground.z)) return;
     const gp = this.view.unproject(end.x, end.y, true);
-    const isGoal = gp && Math.abs(gp.x) < 6.6 && gp.y > -0.6 && gp.y < 5;
+    const isGoal = gp && gp.y >= 0.11;
     const shot = !!isGoal;
+    if (!shot && (!ground || !Number.isFinite(ground.z))) return;
     let receiver = -1;
-    let target = { x: ground.x, y: 0.11, z: ground.z };
+    let target = { x: ground?.x ?? 0, y: 0.11, z: ground?.z ?? 0 };
     if (shot) {
-      const assist = this.view.width < 600;
       target = {
-        x: assist && Math.abs(gp!.x) < 3.92 ? clamp(gp!.x, -3.32, 3.32) : gp!.x,
-        y:
-          assist && gp!.y < 2.72
-            ? clamp(gp!.y, 0.2, 2.13)
-            : clamp(gp!.y, 0.14, 4.5),
+        x: gp!.x,
+        y: gp!.y,
         z: -0.08,
       };
     } else {
@@ -129,19 +125,13 @@ export class Drawing {
         }
       }
       const p = s.players.find((p) => p.id === receiver);
-      if (!p || best > 150) {
-        this.message("Find a teammate, lead their run, or aim at the goal.");
-        return;
-      }
-      if (Math.hypot(target.x - p.x, target.z - p.z) > 9) {
-        this.message("That pass is too far ahead of the runner.");
-        return;
-      }
-      if (best < 34) {
+      if (!p || best > 150 || Math.hypot(target.x - p.x, target.z - p.z) > 9)
+        receiver = -1;
+      if (p && receiver !== -1 && best < 34) {
         target.x = p.x;
         target.z = p.z - 0.8;
       }
-      if (this.loft && target.z < 16)
+      if (receiver !== -1 && this.loft && target.z < 16)
         target.y = s.level.specialty === "Header" ? 1.65 : 1.05;
     }
     const dx = end.x - start.x,

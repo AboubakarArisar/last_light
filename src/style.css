@@ -781,7 +781,7 @@ input[type="range"] {
   max-width: 245px;
 }
 .moment-info .eyebrow {
-  font-size: 8px;
+  font-size: 11px;
   color: var(--accent);
 }
 .moment-info h2 {
@@ -1371,7 +1371,7 @@ input[type="range"] {
     font-size: 10px;
   }
   .moment-info .eyebrow {
-    font-size: 7px;
+    font-size: 10px;
   }
   .hud-bottom {
     bottom: max(19px, env(safe-area-inset-bottom));

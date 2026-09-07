@@ -72,11 +72,12 @@ export function launch(start: Ball, k: Kick): Ball {
   const flight = clamp(d / speed, k.shot ? 0.27 : 0.32, 2.8),
     lift = k.loft ? Math.max(flight, Math.sqrt(Math.max(0, d)) * 0.4) : flight;
   const t = k.loft ? lift : flight;
+  const groundPass = !k.shot && !k.loft && start.y < 0.45;
   const b = {
     ...start,
     vx: (k.target.x - start.x) / t,
     vz: (k.target.z - start.z) / t,
-    vy: (k.target.y - start.y + 4.905 * t * t) / t,
+    vy: groundPass ? 0 : (k.target.y - start.y + 4.905 * t * t) / t,
     spin: clamp(k.curve, -1, 1) * (k.shot ? 0.65 : 0.42),
   };
   // Numerical shooting solves a launch velocity; the live ball still collides and curves freely.
@@ -86,7 +87,7 @@ export function launch(start: Ball, k: Kick): Ball {
       integrate(p, Math.min(STEP, t - elapsed));
     b.vx += (k.target.x - p.x) / t;
     b.vz += (k.target.z - p.z) / t;
-    b.vy += (k.target.y - p.y) / t;
+    if (!groundPass) b.vy += (k.target.y - p.y) / t;
   }
   return b;
 }
@@ -259,8 +260,8 @@ export class Simulation {
     for (const p of this.players) {
       p.anim += dt;
       if (p.team === "home") {
-        if (p.id === k.receiver && !k.shot) {
-          this.move(p, k.target, 6.4, dt);
+        if (!k.shot && (p.id === k.receiver || (k.receiver === -1 && p.id !== this.carrier))) {
+          this.move(p, k.receiver === -1 ? b : k.target, 6.4, dt);
         } else if (p.id !== this.carrier && p.route.length)
           this.move(p, p.route[0], 3.5, dt);
         else if (p.anim > 0.65) {
@@ -278,11 +279,18 @@ export class Simulation {
                   .reduce((a, q) => (dist(p, q) < dist(p, a) ? q : a));
           this.move(p, target, 2.2 + this.level.difficulty * 2.7, dt);
         }
-        if (this.actionTime > 0.16 && dist(p, b) < 0.53 && b.y < 1.85) {
-          p.action = b.y > 0.6 ? "block" : "tackle";
+        const dx = b.x - prev.x - p.vx * dt;
+        const dz = b.z - prev.z - p.vz * dt;
+        const px = prev.x - (p.x - p.vx * dt);
+        const pz = prev.z - (p.z - p.vz * dt);
+        const fraction = clamp(-(px * dx + pz * dz) / (dx * dx + dz * dz || 1), 0, 1);
+        const height = prev.y + (b.y - prev.y) * fraction;
+        if (Math.hypot(px + dx * fraction, pz + dz * fraction) < 0.75 && height < 1.85) {
+          p.action = height > 0.6 ? "block" : "tackle";
           p.anim = 0;
           this.events.push("contact");
-          this.fail(b.y > 0.6 ? "Blocked by the defence" : "Pass intercepted");
+          this.fail(height > 0.6 ? "Blocked by the defence" : "Pass intercepted");
+          break;
         }
       } else {
         const reaction = 0.44 - this.level.difficulty * 0.23;
@@ -374,9 +382,11 @@ export class Simulation {
         this.goal();
       } else this.fail(y >= 2.33 ? "Over the bar" : "Just wide");
     }
-    if (!k.shot && this.actionTime > 0.17) {
-      const receiver = this.players.find((p) => p.id === k.receiver);
-      if (receiver && dist(receiver, b) < 1.3 && b.y < 2.15) {
+    if (this.state === "execution" && !k.shot && this.actionTime > 0.17) {
+      const receiver = this.players.find((p) =>
+        p.team === "home" && p.id !== this.carrier && dist(p, b) < 0.85 && b.y < 2.15,
+      );
+      if (receiver) {
         this.carrier = receiver.id;
         this.passes++;
         receiver.action =

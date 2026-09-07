@@ -105,11 +105,11 @@ export class Sound {
   play(event: string) {
     if (!this.context) return;
     if (event === "kick" || event === "shot") {
-      this.noiseHit(0.14, event === "shot" ? 0.55 : 0.25, 1400);
-      this.tone(110, 0.18, 0.28);
+      this.noiseHit(0.045, event === "shot" ? 0.16 : 0.1, 2200);
+      this.tone(190, 0.055, event === "shot" ? 0.075 : 0.045);
     }
     if (event === "receive" || event === "contact")
-      this.noiseHit(0.13, 0.2, 750);
+      this.noiseHit(0.045, 0.075, 1500);
     if (event === "post") {
       this.tone(630, 0.65, 0.3, "triangle");
       this.tone(1230, 0.4, 0.14);

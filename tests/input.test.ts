@@ -75,6 +75,17 @@ test("pointer input rejects accidental/secondary touches, captures one pointer a
     assert.equal(kicks[0].receiver, 1);
     assert.equal(kicks[0].shot, false);
     assert.equal(view.cameraFrozen, false);
+    // An empty patch of grass is a valid destination, even without a receiver.
+    drawing.submit([{ x: 100, y: 100, t: 0 }, { x: 900, y: 100, t: 500 }]);
+    assert.equal(kicks.length, 2);
+    assert.equal(kicks[1].receiver, -1);
+    assert.deepEqual(kicks[1].target, { x: 3, y: 0.11, z: 15 });
+    view.unproject = (_x, _y, goal = false) =>
+      goal ? { x: 12, y: 6, z: 0 } : null;
+    drawing.submit([{ x: 100, y: 100, t: 0 }, { x: 900, y: 10, t: 500 }]);
+    assert.equal(kicks.length, 3);
+    assert.equal(kicks[2].shot, true);
+    assert.deepEqual(kicks[2].target, { x: 12, y: 6, z: -0.08 });
     drawing.down(pointer(100));
     drawing.cancel();
     assert.equal(drawing.pointer, null);

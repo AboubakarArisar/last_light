@@ -151,6 +151,44 @@ test("spin changes trajectory; gravity, bounce and friction remain finite", () =
   assert.equal(b.y, 0.11);
   assert.ok(Math.hypot(b.vx, b.vz) < 0.1);
 });
+
+test("driven passes stay on the turf and defenders can cut out the passing lane", () => {
+  const l = {
+    ...levels[0],
+    attackers: [{ x: 0, z: 25, route: [] }, { x: 0, z: 10, route: [] }],
+    defenders: [{ x: 0.6, z: 20 }],
+  };
+  const k: Kick = {
+    shot: false, target: { x: 0, y: 0.11, z: 10 },
+    receiver: 1, power: 0.5, curve: 0, loft: false,
+  };
+  const s = new Simulation(l);
+  const b = launch(s.ball, k);
+  for (let i = 0; i < 100; i++) {
+    integrate(b, STEP);
+    assert.equal(b.y, 0.11);
+  }
+  execute(s, k);
+  assert.equal(s.state, "failure");
+  assert.equal(s.reason, "Pass intercepted");
+  assert.equal(s.passes, 0);
+});
+
+test("free kicks into space can be collected or go out of play", () => {
+  const l = { ...levels[0], defenders: [] };
+  const k: Kick = {
+    shot: false, target: { x: 3, y: 0.11, z: 15 },
+    receiver: -1, power: 0.5, curve: 0, loft: false,
+  };
+  const collected = execute(new Simulation(l), k);
+  assert.equal(collected.state, "decision");
+  assert.equal(collected.passes, 1);
+  const out = execute(new Simulation({ ...l, attackers: [l.attackers[0]] }), {
+    ...k, target: { x: 40, y: 0.11, z: 25 },
+  });
+  assert.equal(out.state, "failure");
+  assert.equal(out.reason, "Out of play");
+});
 test("identical commands produce identical replay frames", () => {
   const a = new Simulation(levels[27]),
     b = new Simulation(levels[27]);
