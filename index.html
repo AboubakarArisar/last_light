@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#101912" />
+    <meta
+      name="description"
+      content="Draw the perfect football move. An original cinematic football game. 64 career moments, daily challenges and instant replays."
+    />
+    <title>LAST LIGHT — Make the moment.</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div id="stadium"></div>
+    <canvas
+      tabindex="0"
+      id="ink"
+      aria-label="Football pitch: draw from the ball to pass or shoot"
+    ></canvas>
+    <main id="ui">
+      <div
+        style="
+          padding: 12vh 8vw;
+          font-family: Arial, sans-serif;
+          color: #d1f58a;
+        "
+      >
+        LAST LIGHT<br /><small style="display: block; margin-top: 16px"
+          >Preparing the pitch…</small
+        >
+      </div>
+    </main>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
