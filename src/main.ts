@@ -23,10 +23,10 @@ import { Stadium } from "./rendering";
 import { Drawing } from "./input";
 import { Sound } from "./audio";
 import { en as t } from "./strings";
+import { Account, accountClient } from "./account";
 const ui = document.querySelector<HTMLElement>("#ui")!,
   toast = document.querySelector<HTMLElement>("#toast")!;
 let save: Save;
-let persistence = true;
 let hadSave = false;
 try {
   const raw = localStorage.getItem(KEY);
@@ -34,7 +34,6 @@ try {
   save = parseSave(raw);
 } catch {
   save = fresh();
-  persistence = false;
 }
 if (!hadSave && matchMedia("(prefers-reduced-motion: reduce)").matches)
   save.settings.reducedMotion = true;
@@ -92,13 +91,74 @@ const button = (action: string, label: string, cls = "", extra = "") =>
   `<button data-action="${action}" class="${cls}" ${extra}>${label}</button>`;
 const stars = (n: number) =>
   `<span class="stars" aria-label="${n} stars">${"★".repeat(n)}<span class="empty">${"☆".repeat(3 - n)}</span></span>`;
-function persist() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(save));
-  } catch {
-    persistence = false;
-    notify("Device storage is unavailable. Progress is kept for this session.");
+let authMode: "login" | "signup" | "forgot" = "login";
+let authBusy = false;
+let recoveryTicket: string | null = null;
+let recoveryStep = false;
+let recoveryError = "";
+let accountNotice = "";
+let authEmail = "";
+let authUsername = "";
+let ticketDownloadURL: string | null = null;
+let ticketDownloadTimer = 0;
+let accountSetupError = "";
+let client: ReturnType<typeof accountClient> = null;
+try { client = accountClient(); }
+catch (error) { accountSetupError = error instanceof Error ? error.message : "Accounts could not be configured."; }
+// Access storage lazily so blocked browser storage produces a visible error.
+const account = new Account(client, {
+  get length() { return localStorage.length; },
+  clear: () => localStorage.clear(),
+  key: (index) => localStorage.key(index),
+  getItem: (key) => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
+  removeItem: (key) => localStorage.removeItem(key),
+}, (value, switched) => {
+  save = value;
+  view.settings = save;
+  sound.update(save.settings);
+  view.quality();
+  if (switched) {
+    recoveryTicket = null;
+    recoveryStep = false;
+    recoveryError = "";
+    sim = new Simulation(levels[unlocked(save)]);
+    previousState = sim.state;
+    if (["play", "result", "replay"].includes(page)) screen("home");
   }
+  if (!authBusy && !recoveryStep && !["play", "result", "replay"].includes(page)) screen(page);
+}, () => {
+  document.querySelectorAll<HTMLElement>("[data-save-status]").forEach((el) => {
+    el.textContent = account.error || account.status;
+    el.classList.toggle("save-error", !!account.error);
+  });
+  const syncButton = ui.querySelector<HTMLButtonElement>('[data-action="sync-account"]');
+  if (syncButton) buttonLoading(syncButton, account.syncing, "Saving…");
+  ui.querySelectorAll<HTMLElement>("[data-account-stat]").forEach((el) => {
+    el.textContent = account.progressReady
+      ? String(el.dataset.accountStat === "levels" ? save.stars.filter(Boolean).length : el.dataset.accountStat === "stars" ? totalStars(save) : save.stats.goals)
+      : "—";
+  });
+});
+function buttonLoading(el: HTMLButtonElement, loading: boolean, label = "Please wait…") {
+  if (loading) {
+    if (!el.hasAttribute("data-idle-content")) el.dataset.idleContent = el.innerHTML;
+    el.innerHTML = `<span class="button-spinner" aria-hidden="true"></span><span>${escape(label)}</span>`;
+    el.disabled = true;
+    el.setAttribute("aria-busy", "true");
+  } else if (el.hasAttribute("data-idle-content")) {
+    el.innerHTML = el.dataset.idleContent!;
+    delete el.dataset.idleContent;
+    el.disabled = false;
+    el.removeAttribute("aria-busy");
+  }
+}
+function accountName() {
+  const name = account.user?.user_metadata.username;
+  return typeof name === "string" && name.trim() ? name : account.user?.email?.split("@")[0] || "My account";
+}
+function persist() {
+  account.save(save);
 }
 function notify(message: string) {
   toast.textContent = message;
@@ -107,9 +167,13 @@ function notify(message: string) {
   toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 2900);
 }
 function header(active = "") {
-  return `<header><button class="wordmark" data-action="home" aria-label="LAST LIGHT home">LAST<span>LIGHT</span><i>™</i></button><nav aria-label="Main navigation">${button("career", t.career, active === "career" ? "active" : "")}${button("daily", t.daily, active === "daily" ? "active" : "")}${button("customize", t.customize, active === "customize" ? "active" : "")}</nav><div class="profile-chip"><span class="crest">N<span>★</span></span><div><b>${escape(save.profile.name)}</b><small>NORTHSTAR FC · #${save.profile.number}</small></div>${button("settings", "⚙", "icon-button", 'aria-label="Settings"')}</div></header>`;
+  const identity = !account.ready ? '<span class="guest-label">Checking sign-in…</span>' : account.user
+    ? button("account", `<span class="account-avatar" aria-hidden="true">${escape(accountName().slice(0, 1).toUpperCase())}</span><span><b>${escape(accountName())}</b><small>✓ Signed in</small></span>`, "account-identity-button", `aria-label="Account for ${escape(accountName())}, signed in"`)
+    : `<span class="guest-label">Guest</span>${button("account", "Sign in", "account-link")}${button("auth-signup", "Join the club ↗", "account-join")}`;
+  return `<header><button class="wordmark" data-action="home" aria-label="LAST LIGHT home">LAST<span>LIGHT</span><i>™</i></button><nav aria-label="Main navigation">${button("career", t.career, active === "career" ? "active" : "")}${button("daily", t.daily, active === "daily" ? "active" : "")}${button("customize", t.customize, active === "customize" ? "active" : "")}</nav><div class="profile-chip">${identity}${button("settings", "⚙", "icon-button", 'aria-label="Settings"')}</div></header>`;
 }
 function screen(name: string) {
+  if (name !== "account") { recoveryTicket = null; recoveryStep = false; recoveryError = ""; }
   page = name;
   paused = false;
   drawing.enabled = false;
@@ -122,6 +186,7 @@ function screen(name: string) {
   else if (name === "customize") customize();
   else if (name === "stats") stats();
   else if (name === "settings") settings();
+  else if (name === "account") accountScreen();
   else if (name === "play") hud();
   else if (name === "result") results();
   else if (name === "replay") replayUI();
@@ -233,9 +298,13 @@ function stats() {
 }
 function settings() {
   const s = save.settings;
-  ui.innerHTML = `${header()}<section class="page-content settings-page"><div class="eyebrow">YOUR GAME. YOUR WAY.</div><h1>SETTINGS.</h1><form id="settings-form">${(["volume", "music", "crowd"] as const).map((k, i) => `<label class="slider-label">${["Master volume", "Menu music", "Stadium ambience"][i]}<output>${Math.round(s[k] * 100)}%</output><input name="${k}" aria-label="${["Master volume", "Menu music", "Stadium ambience"][i]}" type="range" min="0" max="1" step=".05" value="${s[k]}"></label>`).join("")}<label>Graphics<select name="graphics">${["auto", "low", "medium", "high"].map((v) => `<option ${s.graphics === v ? "selected" : ""}>${v}</option>`).join("")}</select></label><label class="toggle">Reduced camera motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label><label class="toggle">Haptic feedback<input name="vibration" type="checkbox" ${s.vibration ? "checked" : ""}></label><p class="muted">Mouse, touch or pen: draw from the ball.<br>Keyboard: arrow keys aim, Enter shoots, L switches lift, Escape pauses, R retries.</p></form><div class="settings-footer">${button("home", "← Back to home", "text-button")}${button("reset", "Reset progress", "danger")}</div><small class="muted">${persistence ? t.saved : "Device storage unavailable"}. No account needed.</small></section>`;
+  ui.innerHTML = `${header()}<section class="page-content settings-page"><div class="eyebrow">YOUR GAME. YOUR WAY.</div><h1>SETTINGS.</h1><form id="settings-form">${(["volume", "music", "crowd"] as const).map((k, i) => `<label class="slider-label">${["Master volume", "Menu music", "Stadium ambience"][i]}<output>${Math.round(s[k] * 100)}%</output><input name="${k}" aria-label="${["Master volume", "Menu music", "Stadium ambience"][i]}" type="range" min="0" max="1" step=".05" value="${s[k]}"></label>`).join("")}<label>Graphics<select name="graphics">${["auto", "low", "medium", "high"].map((v) => `<option ${s.graphics === v ? "selected" : ""}>${v}</option>`).join("")}</select></label><label class="toggle">Reduced camera motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label><label class="toggle">Haptic feedback<input name="vibration" type="checkbox" ${s.vibration ? "checked" : ""}></label><p class="muted">Mouse, touch or pen: draw from the ball.<br>Keyboard: arrow keys aim, Enter shoots, L switches lift, Escape pauses, R retries.</p></form><div class="settings-footer">${button("home", "← Back to home", "text-button")}${!account.user ? button("reset", "Reset guest progress", "danger") : button("account", "Manage account ↗", "text-button")}</div><small class="muted">${escape(account.error || account.status)}. ${account.user ? "Your account keeps your progress across devices." : "Sign in to back up progress to your account."}</small></section>`;
 }
 function start(level: Level, newMode = "career", retry = false) {
+  if (!account.canPlay) {
+    notify(account.ready ? "This account is open in another tab. Close that tab and reload here." : "Checking your sign-in. Please try again in a moment.");
+    return;
+  }
   mode = newMode;
   if (!retry) attempt = 1;
   sim = new Simulation(level);
@@ -273,6 +342,7 @@ function act(k: Kick) {
   sim.act(k);
   drawing.enabled = false;
   k.shot ? save.stats.shots++ : save.stats.passes++;
+  persist();
   hud();
 }
 function endResult() {
@@ -287,6 +357,109 @@ function endResult() {
     if (sim.level.specialty === "Free kick") save.stats.freeKicks++;
     award(save, sim.level.id, r.stars, r.quality, mode);
     persist();
+  }
+  if (sim.state === "failure") persist();
+}
+
+function accountScreen() {
+  let content: string;
+  if (!account.client) {
+    content = `<h1>YOUR<br><em>ACCOUNT.</em></h1><p>${escape(accountSetupError || "Accounts are not available yet. You can keep playing as a guest on this browser.")}</p>`;
+  } else if (account.user && recoveryStep) {
+    content = `<div class="auth-steps"><span>✓ Account created</span><span aria-current="step">2 · Keep access</span></div><h1>YOUR WAY<br><em>BACK IN.</em></h1><p>You're signed in as <strong>${escape(accountName())}</strong>. One last thing: save your recovery code.</p>${recoveryPanel(true)}`;
+  } else if (account.user) {
+    const guest = account.guestProgress();
+    content = `<h1>YOUR<br><em>CLUBHOUSE.</em></h1><p class="account-identity"><span class="signed-in-label">✓ Signed in</span><b>${escape(accountName())}</b><br>${escape(account.user.email ?? "")}</p>
+      <div class="account-save-card"><h2>YOUR PROGRESS</h2><p data-save-status role="status" class="${account.error ? "save-error" : ""}">${escape(account.error || account.status)}</p>
+      <div class="account-summary"><span><b data-account-stat="levels">${account.progressReady ? save.stars.filter(Boolean).length : "—"}</b> / 64 levels</span><span><b data-account-stat="stars">${account.progressReady ? totalStars(save) : "—"}</b> stars</span><span><b data-account-stat="goals">${account.progressReady ? save.stats.goals : "—"}</b> goals</span></div>
+      ${button("sync-account", "Check saved progress ↗", "secondary")}</div>
+      ${guest ? `<div class="account-section"><h2>KEEP YOUR LOCAL RUN.</h2><p>You played ${guest.stars.filter(Boolean).length} levels as a guest here. Add that progress to your account without losing your existing results.</p>${button("import-guest", "Keep my guest progress ↗", "secondary")}</div>` : ""}
+      <div class="account-section"><h2>FORGOT YOUR PASSWORD?</h2>${recoveryPanel(false)}</div><div class="account-actions">${button("logout", "Log out", "text-button")}</div>`;
+  } else {
+    const signup = authMode === "signup", forgot = authMode === "forgot";
+    content = `${signup ? '<div class="auth-steps"><span aria-current="step">1 · Your account</span><span>2 · Keep access</span></div>' : ""}<h1>${signup ? "JOIN THE<br><em>CLUB.</em>" : forgot ? "BACK IN<br><em>THE GAME.</em>" : "WELCOME<br><em>BACK.</em>"}</h1>
+      <p>${signup ? "Keep your levels, goals and best moments in one place." : forgot ? "Enter the recovery code you saved when joining. Then choose a new password." : "Sign in with your email to pick up where you left off."}</p>
+      ${accountNotice ? `<p class="account-notice" role="status">${escape(accountNotice)}</p>` : ""}
+      <form id="auth-form"><fieldset ${authBusy ? "disabled" : ""}>
+      ${signup ? `<label>What should we call you?<input name="username" autocomplete="nickname" value="${escape(authUsername)}" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" title="3–24 letters, numbers or underscores" required><small class="field-hint">3–24 letters, numbers or underscores.</small></label>` : ""}
+      ${forgot ? '<label>Your recovery code<input name="ticket" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="LL-XXXXXXXX-…" required><small class="field-hint">Paste the full code, including all six groups.</small></label>' : `<label>Email address<input name="email" type="email" autocomplete="email" value="${escape(authEmail)}" maxlength="254" required></label>`}
+      <label for="auth-password">${forgot ? "New password" : "Password"}</label><div class="password-field"><input id="auth-password" name="password" type="password" autocomplete="${signup || forgot ? "new-password" : "current-password"}" ${signup || forgot ? 'minlength="10" aria-describedby="password-hint"' : ""} required>${button("toggle-password", "Show", "password-toggle", 'type="button" aria-label="Show password" aria-pressed="false"')}</div>
+      ${signup || forgot ? '<p id="password-hint" class="field-hint">At least 10 characters. A short phrase is easy to remember.</p><label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>' : `<div class="forgot-link">${button("auth-forgot", "Forgot password?", "text-button", 'type="button"')}</div>`}
+      <p id="auth-message" role="alert" tabindex="-1"></p><button type="submit" class="primary">${signup ? "Create my account ↗" : forgot ? "Set new password ↗" : "Sign in ↗"}</button>
+      ${signup ? '<p class="muted">Next, we’ll give you a private recovery code to save. No verification email or OTP.</p>' : ""}</fieldset></form>
+      <div class="account-actions"><span>${signup ? "Already a member?" : forgot ? "Remember your password?" : "New here?"}</span>${button(signup || forgot ? "auth-login" : "auth-signup", signup || forgot ? "Sign in" : "Create an account", "text-button")}</div>`;
+  }
+  ui.innerHTML = `${header()}<section class="page-content account-page"><div class="eyebrow">NORTHSTAR FC / YOUR ACCOUNT</div>${content}${!recoveryStep ? button("home", account.user ? "← Back to game" : "Continue as a guest →", "text-button") : ""}</section>`;
+  const syncButton = ui.querySelector<HTMLButtonElement>('[data-action="sync-account"]');
+  if (syncButton) buttonLoading(syncButton, account.syncing, "Saving…");
+}
+
+function recoveryPanel(onboarding: boolean) {
+  return `<div class="recovery-card"><p>Your recovery code is your spare key. Use it if you forget your password—no email needed. Keep it private.</p>
+    ${recoveryTicket ? `<div class="ticket-label">LAST LIGHT · YOUR RECOVERY CODE</div><code id="recovery-ticket">${escape(recoveryTicket)}</code><div class="account-actions">${button("copy-ticket", "Copy code", "secondary")}${button("download-ticket", "Download a copy ↓", "text-button")}</div><p class="field-hint">Keep a copy in your password manager or somewhere safe. We can’t show this code again after you leave.</p>${onboarding ? '<label class="ticket-confirm"><input id="ticket-saved" type="checkbox"> I’ve saved my recovery code somewhere safe.</label>' + button("finish-signup", "Let’s play ↗", "primary", "disabled") : ""}`
+    : `<p>${onboarding ? "Your account is created. Let's prepare your code before you play." : "Create a code now, or replace one you've lost. Creating a new code makes the previous one stop working."}</p>${button("issue-ticket", recoveryError ? "Try again ↗" : "Prepare my recovery code ↗", "primary")}`}
+    <p id="recovery-message" role="alert" class="save-error">${escape(recoveryError)}</p>
+    ${onboarding && !recoveryTicket ? button("skip-recovery", "I’ll do this later", "text-button") + '<p class="field-hint">You won’t be able to reset a forgotten password until you save a recovery code.</p>' : ""}</div>`;
+}
+
+async function prepareRecovery(el: HTMLButtonElement) {
+  authBusy = true;
+  recoveryError = "";
+  buttonLoading(el, true, "Preparing your code…");
+  try { recoveryTicket = await account.recovery("issue"); }
+  catch (error) { recoveryError = error instanceof Error ? error.message : "Your code couldn't be prepared. Please try again."; }
+  finally {
+    authBusy = false;
+    buttonLoading(el, false);
+    accountScreen();
+  }
+}
+
+async function submitAuth(form: HTMLFormElement) {
+  if (authBusy) return;
+  const values = new FormData(form);
+  const password = String(values.get("password") ?? "");
+  const formMode = authMode;
+  authEmail = String(values.get("email") ?? authEmail).trim();
+  authUsername = String(values.get("username") ?? authUsername).trim();
+  const message = form.querySelector<HTMLElement>("#auth-message")!;
+  if (formMode !== "login" && password !== values.get("confirm")) {
+    message.textContent = "The passwords do not match.";
+    form.querySelector<HTMLInputElement>('[name="confirm"]')?.focus(); return;
+  }
+  authBusy = true;
+  const fieldset = form.querySelector("fieldset")!;
+  fieldset.disabled = true;
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  buttonLoading(submit, true, formMode === "signup" ? "Creating your account…" : formMode === "login" ? "Signing in…" : "Updating your password…");
+  message.textContent = "";
+  accountNotice = "";
+  try {
+    if (formMode === "signup") {
+      await account.signUp(authUsername, authEmail, password);
+      form.reset();
+      recoveryStep = true;
+      authBusy = false;
+      screen("account");
+      await prepareRecovery(ui.querySelector<HTMLButtonElement>('[data-action="issue-ticket"]')!);
+      return;
+    } else if (formMode === "login") {
+      await account.signIn(authEmail, password);
+    } else {
+      await account.recovery("reset", { ticket: String(values.get("ticket") ?? ""), password });
+      authMode = "login";
+      accountNotice = "Your password is updated. Sign in with the new password, then save a new recovery code.";
+    }
+    form.reset();
+    authBusy = false;
+    accountScreen();
+  } catch (error) {
+    message.textContent = error instanceof Error ? error.message : "Could not complete the request. Please retry.";
+    message.focus();
+  } finally {
+    authBusy = false;
+    fieldset.disabled = false;
+    buttonLoading(submit, false);
   }
 }
 function results() {
@@ -327,7 +500,76 @@ ui.addEventListener(
       "[data-action]",
     );
     if (!el || el.disabled) return;
+    if (authBusy) return;
     const action = el.dataset.action!;
+    if (action === "toggle-password") {
+      const password = ui.querySelector<HTMLInputElement>("#auth-password")!;
+      const show = password.type === "password";
+      password.type = show ? "text" : "password";
+      el.textContent = show ? "Hide" : "Show";
+      el.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      el.setAttribute("aria-pressed", String(show));
+      return;
+    }
+    if (action === "finish-signup") {
+      if (recoveryTicket && ui.querySelector<HTMLInputElement>("#ticket-saved")?.checked) screen("home");
+      return;
+    }
+    if (action === "skip-recovery") { screen("home"); return; }
+    if (action === "issue-ticket") { await prepareRecovery(el); return; }
+    if (action === "download-ticket" && recoveryTicket) {
+      if (ticketDownloadURL) URL.revokeObjectURL(ticketDownloadURL);
+      clearTimeout(ticketDownloadTimer);
+      ticketDownloadURL = URL.createObjectURL(new Blob([
+        `LAST LIGHT — RECOVERY CODE\n\n${recoveryTicket}\n\nKeep this private. Use it on Forgot password to reset your password. It works once.\n`,
+      ], { type: "text/plain;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = ticketDownloadURL;
+      link.download = "last-light-recovery-code.txt";
+      link.click();
+      ticketDownloadTimer = window.setTimeout(() => {
+        if (ticketDownloadURL) URL.revokeObjectURL(ticketDownloadURL);
+        ticketDownloadURL = null;
+      }, 1000);
+      el.textContent = "Downloaded ✓";
+      return;
+    }
+    if (action.startsWith("auth-")) {
+      const email = ui.querySelector<HTMLInputElement>('[name="email"]');
+      if (email) authEmail = email.value.trim();
+      const username = ui.querySelector<HTMLInputElement>('[name="username"]');
+      if (username) authUsername = username.value.trim();
+      recoveryTicket = null;
+      accountNotice = "";
+      authMode = action === "auth-signup" ? "signup" : action === "auth-forgot" ? "forgot" : "login";
+      screen("account");
+      return;
+    }
+    if (["logout", "sync-account", "import-guest", "copy-ticket"].includes(action)) {
+      authBusy = true;
+      buttonLoading(el, true, action === "logout" ? "Logging out…" : action === "import-guest" ? "Keeping your progress…" : action === "copy-ticket" ? "Copying…" : "Checking…");
+      try {
+        if (action === "logout") {
+          const unsynced = !!account.cache.pending || !!account.error;
+          await account.signOut();
+          if (unsynced) notify("Logged out. Pending progress stays on this browser until you sign in again.");
+        } else if (action === "sync-account") await account.sync();
+        else if (action === "import-guest") await account.importGuest();
+        else if (recoveryTicket) {
+          try { await navigator.clipboard.writeText(recoveryTicket); buttonLoading(el, false); el.textContent = "Copied ✓"; }
+          catch {
+            const code = ui.querySelector("#recovery-ticket");
+            if (code) { const range = document.createRange(); range.selectNodeContents(code); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); }
+            notify("Select and copy your recovery ticket.");
+          }
+          return;
+        }
+        authBusy = false;
+        screen("account");
+      } catch (error) { notify(error instanceof Error ? error.message : "Could not complete the request. Please retry."); }
+      finally { authBusy = false; buttonLoading(el, false); }
+      return;
+    }
     try {
       await sound.start();
     } catch {
@@ -335,7 +577,7 @@ ui.addEventListener(
     }
     sound.play("ui");
     if (
-      ["home", "career", "daily", "customize", "stats", "settings"].includes(
+      ["home", "career", "daily", "customize", "stats", "settings", "account"].includes(
         action,
       )
     )
@@ -407,6 +649,7 @@ ui.addEventListener(
         `<div class="modal-backdrop"><section class="modal"><h2>Start a new story?</h2><p>This deletes career stars, daily results, statistics and your player identity from this device.</p>${button("confirm-reset", "Delete progress", "danger")}${button("close-modal", "Keep my progress", "primary")}</section></div>`,
       );
     } else if (action === "confirm-reset") {
+      if (account.user) return;
       save = fresh();
       view.settings = save;
       sound.update(save.settings);
@@ -417,8 +660,24 @@ ui.addEventListener(
   { signal: abort.signal },
 );
 ui.addEventListener(
+  "change",
+  (event) => {
+    const input = event.target as HTMLInputElement;
+    if (input.id === "ticket-saved") {
+      const proceed = ui.querySelector<HTMLButtonElement>('[data-action="finish-signup"]');
+      if (proceed) proceed.disabled = !input.checked;
+    }
+  },
+  { signal: abort.signal },
+);
+ui.addEventListener(
   "submit",
   (e) => {
+    if ((e.target as HTMLElement).id === "auth-form") {
+      e.preventDefault();
+      void submitAuth(e.target as HTMLFormElement);
+      return;
+    }
     if ((e.target as HTMLElement).id !== "profile-form") return;
     e.preventDefault();
     const data = new FormData(e.target as HTMLFormElement);
@@ -634,16 +893,24 @@ window.addEventListener(
     view.dispose();
     abort.abort();
     clearTimeout(toastTimer);
+    clearTimeout(ticketDownloadTimer);
+    if (ticketDownloadURL) URL.revokeObjectURL(ticketDownloadURL);
+    void account.dispose().catch(() => console.error("Account cleanup failed."));
   },
   { signal: abort.signal },
 );
 const challenge = decodeChallenge(
   new URL(location.href).searchParams.get("challenge"),
 );
-if (challenge) {
-  start(challenge, "friend");
-  notify("Your friend scored this. Can you?");
-} else screen("home");
+screen("home");
+void account.initialize().then(() => {
+  if (challenge && account.canPlay) {
+    start(challenge, "friend");
+    notify("Your friend scored this. Can you?");
+  } else if (challenge) {
+    notify("Your challenge is ready. Close any other game tab, then reload this link.");
+  }
+}).catch(() => notify("Account initialization failed. Please reload and try again."));
 // Read-only development diagnostics; no production debug UI or mutation shortcuts.
 if (import.meta.env.DEV)
   Object.defineProperty(window, "lastLight", {

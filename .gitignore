@@ -3,3 +3,7 @@ dist/
 *.log
 qa/
 .npm-cache/
+.env
+.env.*
+!.env.example
+supabase/.temp/

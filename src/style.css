@@ -666,6 +666,61 @@ input[type="range"] {
 .settings-page form {
   max-width: 460px;
 }
+.account-page {
+  max-width: 700px;
+  margin-left: 3vw;
+  padding-bottom: 60px;
+}
+.account-page h1 { margin: 25px 0; font-size: clamp(56px, 7.5vw, 100px); }
+.account-page p { line-height: 1.7; }
+.account-page form { max-width: 460px; margin-top: 28px; }
+.account-page fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.account-page fieldset:disabled input { opacity: .6; }
+.account-page #auth-message { color: #e4ab98; margin: 16px 0; }
+.account-page #auth-message:empty, #recovery-message:empty { display: none; }
+.account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 22px; margin: 24px 0; }
+.account-summary { display: flex; gap: 28px; flex-wrap: wrap; margin: 25px 0; font-size: 13px; }
+.account-summary b { color: var(--accent); font-size: 24px; }
+.account-section { border-top: 1px solid #a4be902f; padding: 25px 0; margin-top: 30px; }
+.account-section p { font-size: 13px; }
+.account-section code { display: block; overflow-wrap: anywhere; padding: 20px; background: #17281f; border: 1px solid #a4be9050; user-select: all; }
+.account-link { font-size: 11px; min-height: 44px; padding: 0 8px; color: var(--accent); }
+.save-status { position: relative; z-index: 2; text-align: right; padding: 0 4vw; font-size: 10px; color: #cbd7bd; }
+.save-error { color: #e4ab98; }
+.button-spinner { display: inline-block; width: 15px; height: 15px; margin-right: 9px; vertical-align: -2px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: button-spin .7s linear infinite; flex-shrink: 0; }
+button[aria-busy="true"] { cursor: wait; opacity: 1; }
+@keyframes button-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .button-spinner { animation: none; } }
+.account-identity-button { display: flex; align-items: center; gap: 10px; text-align: left; min-height: 44px; }
+.account-identity-button b { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-identity-button small { color: var(--accent); letter-spacing: .4px; }
+.account-avatar { display: grid; place-items: center; width: 34px; height: 34px; background: var(--accent); color: #17281f; font-weight: 700; border-radius: 50%; }
+.guest-label { font-size: 10px; color: #aabb9c; }
+.account-join { min-height: 40px; padding: 0 14px; color: #17281f; background: var(--accent); font-size: 11px; }
+.signed-in-label { display: block; color: var(--accent); font-size: 11px; margin-bottom: 9px; }
+.account-save-card, .recovery-card { padding: 24px; border: 1px solid #a4be9035; background: #10231988; margin: 24px 0; }
+.account-save-card h2 { font-size: 18px; }
+.account-save-card p, .recovery-card p { font-size: 13px; }
+.auth-steps { display: flex; flex-wrap: wrap; gap: 24px; font-size: 11px; color: #91a685; margin-top: 24px; }
+.auth-steps [aria-current="step"] { color: var(--accent); }
+.field-hint { display: block; font-size: 11px; line-height: 1.6; color: #a7b79a; margin-top: 9px; }
+.account-page label[for="auth-password"] { margin-bottom: 9px; }
+.password-field { position: relative; margin-bottom: 9px; }
+.password-field input { padding-right: 65px !important; margin-top: 0 !important; }
+.password-toggle { position: absolute; right: 0; top: 0; height: 100%; min-width: 60px; font-size: 11px; color: var(--accent); }
+.forgot-link { text-align: right; margin: 10px 0 22px; }
+.account-page #password-hint { margin-bottom: 22px; }
+.account-notice { padding: 14px; border-left: 2px solid var(--accent); background: #17281f; font-size: 13px; }
+.ticket-label { font-size: 10px; color: var(--accent); letter-spacing: 1px; margin: 20px 0 12px; }
+.recovery-card code { display: block; overflow-wrap: anywhere; padding: 18px; background: #17281f; border: 1px dashed #a4be9060; user-select: all; line-height: 1.7; }
+.ticket-confirm { display: flex; align-items: flex-start; gap: 10px; line-height: 1.6; margin: 22px 0; }
+.ticket-confirm input { accent-color: var(--accent); min-width: 18px; height: 18px; margin: 0; }
+@media (max-width: 600px) {
+  .account-join, .account-avatar { display: none; }
+  .account-identity-button b { max-width: 110px; }
+  .account-save-card, .recovery-card { padding: 18px; }
+  .account-summary { gap: 18px; }
+}
 .slider-label output {
   float: right;
   color: var(--accent);

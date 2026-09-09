@@ -1,6 +1,6 @@
 # LAST LIGHT
 
-An original browser football game about drawing a decisive attacking move. Built with TypeScript, Three.js and Vite. No account, backend, energy timer, or licensed football assets.
+An original browser football game about drawing a decisive attacking move. Built with TypeScript, Three.js and Vite. Optional Supabase accounts and cloud saves. No energy timer or licensed football assets.
 
 ## Run
 
@@ -19,7 +19,7 @@ npm run build
 npm run preview
 ```
 
-Host the contents of `dist/` at a site's root. HTTPS enables clipboard sharing, Web Share and supported haptics. Set `Cache-Control: public, max-age=31536000, immutable` for hashed `/assets/` files and revalidate `index.html`. The runtime makes no external font, asset or API requests. Fonts are included locally.
+Host the contents of `dist/` at a site's root. HTTPS enables clipboard sharing, Web Share and supported haptics. Set `Cache-Control: public, max-age=31536000, immutable` for hashed `/assets/` files and revalidate `index.html`. Fonts and assets are included locally. When configured, accounts and progress use your Supabase project. See [Supabase setup](supabase/README.md) for authentication, environment variables, SQL and recovery-ticket deployment.
 
 ## Play
 
@@ -30,7 +30,7 @@ Host the contents of `dist/` at a site's root. HTTPS enables clipboard sharing, 
 - Retry at any time. A missed shot, interception or failed objective ends the attempt; a loose rebound can be recovered.
 - Arrow keys position an aim target, Enter executes, L toggles lift, Escape pauses and R restarts. Touch and pen use the same Pointer Events path.
 
-Career contains 64 seeded scenarios across eight chapters. Stars unlock cosmetic kits, boots and celebrations. Progress, profile, settings, daily results and football statistics are versioned in local storage. The daily challenge rolls over at midnight UTC. Friend URLs recreate a scenario and seed without changing career unlocks. Replays retain sampled simulation frames in memory for the current attempt.
+Career contains 64 seeded scenarios across eight chapters. Stars unlock cosmetic kits, boots and celebrations. Progress, profile, settings, daily results and football statistics are versioned in local storage and synced to Supabase for signed-in players. The daily challenge rolls over at midnight UTC. Friend URLs recreate a scenario and seed without changing career unlocks. Replays retain sampled simulation frames in memory for the current attempt.
 
 ## Structure
 
@@ -43,6 +43,8 @@ Career contains 64 seeded scenarios across eight chapters. Stars unlock cosmetic
 | `src/replay.ts` | Binary search and interpolation of recorded frames |
 | `src/audio.ts` | Original synthesized impacts, ambience, menu rhythm and sound lifecycle |
 | `src/save.ts` | Corruption-tolerant save parsing, progression and daily streaks |
+| `src/account.ts` | Supabase authentication, account isolation, offline queue and cloud sync |
+| `src/progress.ts` | Save merging and queued-operation validation |
 | `src/main.ts` | Application screens, event handling and session lifecycle |
 | `src/strings.ts` | Shared interface vocabulary for future localization |
 | `tests/` | Node tests and a deterministic route solver covering all 64 scenarios |

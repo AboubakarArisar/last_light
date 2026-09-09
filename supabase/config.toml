@@ -1,0 +1,3 @@
+[functions.recovery-ticket]
+# Password recovery starts signed out. The issue action verifies the user's JWT itself.
+verify_jwt = false
