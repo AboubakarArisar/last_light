@@ -49,3 +49,11 @@ Observed 60 FPS in the earlier mobile-viewport scene; the crowded final measured
 - Extended human difficulty balancing across all 64 moments. Automated solvability and representative early/middle/final browser playtesting are complete; every scenario has not received a human playthrough.
 
 No public deployment was performed. Serve `dist/` over HTTPS for release.
+
+## V3 hearts — 10 September 2026
+
+- Five hearts, five segments each; one segment regenerates every three minutes from the first deduction. Later deductions retain the existing countdown.
+- Added heart/account tests covering exhaustion, elapsed recovery, legacy saves, concurrent deductions, lost-response retries, independent users, guest import exclusion, and success versus abandonment.
+- Applied both migrations to an isolated password-protected local PostgreSQL instance. `tests/hearts.sql` passed: legacy validation, heart persistence, concurrent updates, idempotency, RLS between two users, and unauthenticated rejection. Test writes rolled back and the instance was stopped.
+- Browser guest testing on a separate localhost origin verified free pre-kick retries, one-segment failure/abandonment deductions, a 3:00 countdown, persistence after reload, actual automatic refill, zero-heart career blocking, and free Daily Shot retries at zero. Inspected mobile 390 × 844 layout and restored the viewport afterward.
+- Live Supabase migration and cross-device production testing remain deployment steps; the V3 SQL migration is prepared but was not applied to the hosted project.

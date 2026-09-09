@@ -1,4 +1,14 @@
 @import url("/fonts/fonts.css");
+.heart-meter { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 130px; }
+.heart-shapes { display: flex; gap: 5px; filter: drop-shadow(0 0 1px #ffd4d4) drop-shadow(0 1px 2px #0009); }
+.segmented-heart { display: flex; gap: 1px; width: 22px; height: 21px; clip-path: polygon(0 15%, 15% 0, 35% 0, 50% 17%, 65% 0, 85% 0, 100% 15%, 100% 43%, 50% 100%, 0 43%); }
+.segmented-heart i { flex: 1; background: #ffffff26; }
+.segmented-heart i.filled { background: #c92b40; }
+.heart-meter small { font-size: 10px; font-variant-numeric: tabular-nums; color: #f0f2e8; white-space: nowrap; }
+.heart-lost .heart-shapes { animation: heart-loss .45s ease-out; }
+@keyframes heart-loss { 50% { transform: scale(.88); opacity: .5; } }
+.result-panel > .heart-meter, .modal > .heart-meter { margin: 12px 0 20px; }
+@media (prefers-reduced-motion: reduce) { .heart-lost .heart-shapes { animation: none; } }
 :root {
   font-family: "DM Sans", Arial, sans-serif;
   color: #f0f2e8;
@@ -1189,7 +1199,7 @@ button[aria-busy="true"] { cursor: wait; opacity: 1; }
     gap: 24px;
     margin-left: 20px;
   }
-  .profile-chip > div {
+  .profile-chip > div:not(.heart-meter) {
     display: none;
   }
   .home-hero {
@@ -1215,6 +1225,13 @@ button[aria-busy="true"] { cursor: wait; opacity: 1; }
   .hero-actions {
     gap: 18px;
   }
+}
+@media (max-width: 1000px) {
+  header .heart-meter { position: absolute; top: 112px; right: 22px; z-index: 2; padding: 7px 9px; border-radius: 8px; background: #142019e8; }
+}
+@media (max-width: 600px) {
+  .hud-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 160px; }
+  .hud-actions .heart-meter { order: 3; flex-basis: 100%; }
 }
 @media (max-width: 600px) {
   header {
@@ -1648,4 +1665,8 @@ button[aria-busy="true"] { cursor: wait; opacity: 1; }
   .home-footer > small {
     display: none;
   }
+}
+
+@media (max-width: 1000px) and (min-height: 521px) {
+  header { height: 170px; }
 }

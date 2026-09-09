@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { KEY, fresh, type Save } from "./save.ts";
+import { spendHeart } from "./hearts.ts";
 import { mergeProgress, newCache, readCache, readSave, type ProgressCache } from "./progress.ts";
 
 export class CloudSaveError extends Error {
@@ -50,6 +51,7 @@ export class Account {
   private storage: Storage;
   private onSave: (save: Save, switched: boolean) => void;
   private onStatus: () => void;
+  private careerAttempt = false;
 
   constructor(client: SupabaseClient | null, storage: Storage,
     onSave: (save: Save, switched: boolean) => void, onStatus: () => void) {
@@ -83,8 +85,9 @@ export class Account {
   private switchUser(user: User | null) {
     if (this.disposed) return;
     const id = user?.id ?? null;
+    if (this.loadedUser === id) { this.user = user; this.onStatus(); return; }
+    this.finishCareerAttempt(false);
     this.user = user;
-    if (this.loadedUser === id) { this.onStatus(); return; }
     this.loadedUser = id;
     this.generation++;
     this.releaseLock?.();
@@ -100,7 +103,7 @@ export class Account {
     try {
       if (id) {
         const raw = this.storage.getItem(this.key);
-        if (raw) { this.cache = readCache(raw); this.progressReady = true; }
+        if (raw) { this.cache = readCache(raw); this.progressReady = this.cache.cloudLoaded; }
       } else {
         const raw = this.storage.getItem(KEY);
         if (raw) this.cache = newCache(readSave(JSON.parse(raw)));
@@ -130,6 +133,17 @@ export class Account {
   }
 
   private get key() { return this.user ? `${KEY}.account.${this.user.id}` : KEY; }
+
+  beginCareerAttempt() { this.careerAttempt = true; }
+
+  finishCareerAttempt(won: boolean) {
+    if (!this.careerAttempt) return false;
+    this.careerAttempt = false;
+    if (won || !spendHeart(this.cache.save.hearts)) return false;
+    this.save(this.cache.save);
+    this.onSave(structuredClone(this.cache.save), false);
+    return true;
+  }
 
   private store() {
     if (this.cacheBlocked) throw new Error("Unreadable local progress was preserved. Back it up before replacing it.");
@@ -203,6 +217,7 @@ export class Account {
       const remote = data ? readSave(data.data) : fresh();
       this.cache.save = mergeProgress(remote, this.cache.base, this.cache.save);
       this.cache.base = remote;
+      this.cache.cloudLoaded = true;
       this.progressReady = true;
       this.store();
       this.onSave(structuredClone(this.cache.save), false);
@@ -213,7 +228,7 @@ export class Account {
     }
     if (this.cache.pending) {
       const pending = this.cache.pending;
-      const { data, error } = await this.client!.rpc("sync_game_save", {
+      const { data, error } = await this.client!.rpc("sync_game_save_v3", {
         p_operation: pending.id, p_base: pending.base, p_save: pending.save,
       }).abortSignal(signal);
       if (!active()) return;
@@ -225,6 +240,7 @@ export class Account {
       this.cache.save = mergeProgress(remote, pending.save, this.cache.save);
       this.cache.base = remote;
       this.cache.pending = null;
+      this.cache.cloudLoaded = true;
       this.progressReady = true;
       this.store();
       this.onSave(structuredClone(this.cache.save), false);
@@ -259,6 +275,7 @@ export class Account {
     this.storage.setItem(importKey, id);
     const before = structuredClone(this.cache.save);
     this.cache.save = mergeProgress(before, fresh(), guest);
+    this.cache.save.hearts = { ...before.hearts };
     this.cache.pending = { id, base: before, save: structuredClone(this.cache.save) };
     this.store();
     // Import is now durably queued; keep the original guest save as a backup.

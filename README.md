@@ -1,6 +1,6 @@
 # LAST LIGHT
 
-An original browser football game about drawing a decisive attacking move. Built with TypeScript, Three.js and Vite. Optional Supabase accounts and cloud saves. No energy timer or licensed football assets.
+An original browser football game about drawing a decisive attacking move. Built with TypeScript, Three.js and Vite. Optional Supabase accounts and cloud saves. V3 adds five segmented hearts for career play. No licensed football assets.
 
 ## Run
 
@@ -27,7 +27,7 @@ Host the contents of `dist/` at a site's root. HTTPS enables clipboard sharing, 
 - Complete the number of passes shown in the moment, then draw into the goal.
 - Curve the stroke for lateral spin. Draw faster for more power.
 - Select **Lifted** for a chip or aerial delivery. The height of a received cross determines a header, volley or first touch.
-- Retry at any time. A missed shot, interception or failed objective ends the attempt; a loose rebound can be recovered.
+- Career starts with five hearts of five segments (25 attempts). Each failed attempt or exit/restart after a kick costs one segment. One segment regenerates every three minutes, starting with the first loss; further losses do not reset the countdown. Daily and friend challenges are free. Retry at any time while segments remain. A missed shot, interception or failed objective ends the attempt; a loose rebound can be recovered.
 - Arrow keys position an aim target, Enter executes, L toggles lift, Escape pauses and R restarts. Touch and pen use the same Pointer Events path.
 
 Career contains 64 seeded scenarios across eight chapters. Stars unlock cosmetic kits, boots and celebrations. Progress, profile, settings, daily results and football statistics are versioned in local storage and synced to Supabase for signed-in players. The daily challenge rolls over at midnight UTC. Friend URLs recreate a scenario and seed without changing career unlocks. Replays retain sampled simulation frames in memory for the current attempt.
@@ -56,3 +56,9 @@ Players and environments are original procedural geometry with articulated anima
 Browser responsive testing is not a substitute for physical iOS/Android testing. There is no online leaderboard or multiplayer service. Web Share depends on browser support; clipboard or a selectable URL is the fallback. Local storage can be unavailable or cleared by the browser, in which case the game reports that progress cannot persist. Replays are for the current attempt and are not saved as video.
 
 The test suite verifies rules and solvability; it does not establish that every scenario has received human playtesting. See `QA.md` for recorded validation and remaining release checks.
+
+## V3 hearts
+
+Hearts and refill timestamps belong to each account ID; guest hearts stay separate and are excluded from guest imports. Existing saves start full. Recovery is calculated from timestamps while the app is closed, capped at 25 segments. Signed-in career requires an existing account cache or a successful initial cloud load.
+
+Apply `supabase/migrations/202609100001_hearts.sql` after the accounts migration before using V3 cloud saves. It adds the authenticated, idempotent `sync_game_save_v3` RPC and heart validation without resetting player progress. Old clients preserve stored hearts but do not enforce V3 gameplay rules. Offline regeneration uses the device clock; this is not a tamper-proof paid currency.

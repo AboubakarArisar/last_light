@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Account, CloudSaveError, validatePassword } from "../src/account.ts";
 import { KEY, fresh, type Save } from "../src/save.ts";
 import { mergeProgress, newCache, readCache } from "../src/progress.ts";
+import { heartStatus, spendHeart } from "../src/hearts.ts";
 
 class MemoryStorage {
   values = new Map<string, string>();
@@ -13,6 +14,42 @@ class MemoryStorage {
   setItem(k: string, v: string) { this.values.set(k, v); }
   removeItem(k: string) { this.values.delete(k); }
 }
+
+test("hearts belong to each account, settle once, and never import from guests", async () => {
+  const f = fixture();
+  try {
+    await f.account.initialize();
+    const guest = fresh(); guest.stats.attempts = 1;
+    spendHeart(guest.hearts); spendHeart(guest.hearts);
+    f.account.save(guest);
+    await f.account.signIn("alice", "correct-password");
+    await f.account.sync();
+    assert.equal(heartStatus(f.displayed.hearts).segments, 25);
+    f.account.beginCareerAttempt();
+    assert.equal(f.account.finishCareerAttempt(false), true);
+    assert.equal(f.account.finishCareerAttempt(false), false);
+    const aliceHearts = { ...f.displayed.hearts };
+    f.loseResponse = true;
+    await f.account.sync();
+    f.loseResponse = false;
+    await f.account.sync();
+    assert.deepEqual(f.rows.get("alice")!.hearts, aliceHearts);
+    await f.account.importGuest();
+    assert.deepEqual(f.displayed.hearts, aliceHearts);
+    await f.account.signIn("bob", "correct-password");
+    await f.account.sync();
+    assert.equal(heartStatus(f.displayed.hearts).segments, 25);
+    f.account.beginCareerAttempt(); f.account.finishCareerAttempt(true);
+    assert.equal(heartStatus(f.displayed.hearts).segments, 25);
+    f.account.beginCareerAttempt();
+    await f.account.signIn("alice", "correct-password");
+    await f.account.sync();
+    assert.deepEqual(f.displayed.hearts, aliceHearts);
+    assert.equal(readCache(f.storage.getItem(`${KEY}.account.bob`)!).save.hearts.spent, 1);
+    await f.account.signOut();
+    assert.deepEqual(f.displayed.hearts, guest.hearts);
+  } finally { await f.account.dispose(); }
+});
 
 function fixture(storage = new MemoryStorage()) {
   Object.assign(globalThis, { window: new EventTarget() });
@@ -216,6 +253,7 @@ test("a new signed-in device can play before cloud sync and later merge without 
     f.account.save(local);
     await f.account.sync();
     const saved = readCache(f.storage.getItem(`${KEY}.account.alice`)!);
+    assert.equal(saved.cloudLoaded, false, "an offline placeholder must not become a known heart balance on reload");
     assert.equal(saved.save.stats.goals, 1);
     assert.equal(f.rows.get("alice")!.stats.goals, 40);
     f.fetchError = false;
@@ -223,6 +261,7 @@ test("a new signed-in device can play before cloud sync and later merge without 
     assert.equal(f.displayed.stats.goals, 41);
     assert.equal(f.displayed.stars.filter(Boolean).length, 40);
     assert.equal(f.displayed.stars[0], 3);
+    assert.equal(f.account.cache.cloudLoaded, true);
   } finally { await f.account.dispose(); }
 });
 

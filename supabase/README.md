@@ -57,7 +57,7 @@ The server stores only SHA-256 hashes of high-entropy tickets. Concurrent redemp
 
 - Signed-in players have a separate browser cache per account and private cloud progress.
 - Browsers with Web Locks allow one active game tab per account to prevent conflicting writes to that browser's cache. Other devices still sync independently.
-- Cloud availability does not block gameplay. On a new signed-in device, players can start using local progress while the cloud is unavailable; returning devices use their existing account cache. When connected, local results merge into the cloud save without removing completed levels.
+- Cloud availability does not block gameplay. On a new signed-in device, Daily Shot and friend challenges remain available while the cloud is unavailable; career waits for the first successful account load to avoid granting an unknown heart balance; returning devices use their existing account cache. When connected, local results merge into the cloud save without removing completed levels.
 - Local changes are queued before upload. A server-side operation ID makes retries idempotent, including when a response is lost after a successful write.
 - Cloud merges retain the best stars/scores and add only new statistical increments. Profile/settings changes are merged field by field.
 - Guest progress is imported explicitly from Account, once per browser. The original guest save is retained as a backup. Logging out returns to the separate guest save.
@@ -77,3 +77,7 @@ The server stores only SHA-256 hashes of high-entropy tickets. Concurrent redemp
 Local tests use mocked auth/network boundaries; only this live-project checklist verifies your project's authentication settings and deployed function end to end.
 
 Run the frontend tests with `npm test`, build/type-check with `npm run build`, and test the recovery handler without a live network using `deno test --allow-env tests/recovery.edge.ts`.
+
+## V3 migration
+
+After the accounts migration, apply [the hearts migration](migrations/202609100001_hearts.sql) before releasing V3. It preserves existing saves and RLS, validates optional legacy-compatible heart data, and adds `sync_game_save_v3`. Heart deductions merge as unacknowledged increments under the existing per-user row lock and operation ID. Guest imports explicitly exclude hearts. No global heart balance or timer is stored.

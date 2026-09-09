@@ -24,6 +24,7 @@ import { Drawing } from "./input";
 import { Sound } from "./audio";
 import { en as t } from "./strings";
 import { Account, accountClient } from "./account";
+import { heartStatus } from "./hearts";
 const ui = document.querySelector<HTMLElement>("#ui")!,
   toast = document.querySelector<HTMLElement>("#toast")!;
 let save: Save;
@@ -160,6 +161,41 @@ function accountName() {
 function persist() {
   account.save(save);
 }
+function heartsMarkup() {
+  return account.user ? '<div class="heart-meter" data-hearts aria-live="off"></div>' : "";
+}
+let heartDisplay = "";
+let heartLostUntil = 0;
+let heartDisplaySecond = -1;
+function updateHearts() {
+  const second = Math.floor(Date.now() / 1000);
+  if (second === heartDisplaySecond && !ui.querySelector("[data-hearts]:empty")) return;
+  heartDisplaySecond = second;
+  const { segments, nextIn } = heartStatus(save.hearts);
+  const seconds = Math.ceil(nextIn / 1000);
+  const ready = account.ready && account.progressReady;
+  const label = ready ? `${segments}/25 · ${seconds ? `+1 in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "Full"}` : "Loading hearts…";
+  const content = `<span class="heart-shapes" aria-hidden="true">${Array.from({ length: 5 }, (_, heart) => `<span class="segmented-heart">${Array.from({ length: 5 }, (_, part) => `<i class="${heart * 5 + part < segments && ready ? "filled" : ""}"></i>`).join("")}</span>`).join("")}</span><small>${label}</small>`;
+  ui.querySelectorAll<HTMLElement>("[data-hearts]").forEach((el) => {
+    if (heartDisplay !== content || !el.firstChild) {
+      el.innerHTML = content;
+      el.setAttribute("aria-label", ready ? `${segments} of 25 heart segments. ${seconds ? `Next segment in ${seconds} seconds.` : "Hearts full."}` : label);
+    }
+    el.classList.toggle("heart-lost", Date.now() < heartLostUntil);
+  });
+  heartDisplay = content;
+}
+function finishCareerAttempt(won = false) {
+  if (account.finishCareerAttempt(won)) {
+    heartLostUntil = Date.now() + 1200;
+    notify("−1 heart segment. One segment returns every 3 minutes.");
+  }
+}
+function emptyHearts() {
+  screen("career");
+  ui.insertAdjacentHTML("beforeend", `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="Hearts refilling"><h2>HEARTS REFILLING.</h2>${heartsMarkup()}<p>One segment returns every 3 minutes, even while you’re away. Daily Shot and friend challenges are free.</p>${button("continue", "Try career again", "primary")}${button("daily", "Play Daily Shot", "secondary")}${button("close-modal", "Back", "text-button")}</section></div>`);
+  updateHearts();
+}
 function notify(message: string) {
   toast.textContent = message;
   toast.classList.add("visible");
@@ -170,9 +206,10 @@ function header(active = "") {
   const identity = !account.ready ? '<span class="guest-label">Checking sign-in…</span>' : account.user
     ? button("account", `<span class="account-avatar" aria-hidden="true">${escape(accountName().slice(0, 1).toUpperCase())}</span><span><b>${escape(accountName())}</b><small>✓ Signed in</small></span>`, "account-identity-button", `aria-label="Account for ${escape(accountName())}, signed in"`)
     : `<span class="guest-label">Guest</span>${button("account", "Sign in", "account-link")}${button("auth-signup", "Join the club ↗", "account-join")}`;
-  return `<header><button class="wordmark" data-action="home" aria-label="LAST LIGHT home">LAST<span>LIGHT</span><i>™</i></button><nav aria-label="Main navigation">${button("career", t.career, active === "career" ? "active" : "")}${button("daily", t.daily, active === "daily" ? "active" : "")}${button("customize", t.customize, active === "customize" ? "active" : "")}</nav><div class="profile-chip">${identity}${button("settings", "⚙", "icon-button", 'aria-label="Settings"')}</div></header>`;
+  return `<header><button class="wordmark" data-action="home" aria-label="LAST LIGHT home">LAST<span>LIGHT</span><i>™</i></button><nav aria-label="Main navigation">${button("career", t.career, active === "career" ? "active" : "")}${button("daily", t.daily, active === "daily" ? "active" : "")}${button("customize", t.customize, active === "customize" ? "active" : "")}</nav><div class="profile-chip">${heartsMarkup()}${identity}${button("settings", "⚙", "icon-button", 'aria-label="Settings"')}</div></header>`;
 }
 function screen(name: string) {
+  if (page === "play" && name !== "play") finishCareerAttempt(sim.state === "goal");
   if (name !== "account") { recoveryTicket = null; recoveryStep = false; recoveryError = ""; }
   page = name;
   paused = false;
@@ -305,6 +342,14 @@ function start(level: Level, newMode = "career", retry = false) {
     notify(account.ready ? "This account is open in another tab. Close that tab and reload here." : "Checking your sign-in. Please try again in a moment.");
     return;
   }
+  finishCareerAttempt(sim.state === "goal");
+  if (newMode === "career") {
+    if (!account.progressReady) {
+      notify("Load your account’s saved progress before playing career. Daily Shot is available while you wait.");
+      return;
+    }
+    if (!heartStatus(save.hearts).segments) { emptyHearts(); return; }
+  }
   mode = newMode;
   if (!retry) attempt = 1;
   sim = new Simulation(level);
@@ -327,7 +372,7 @@ function levelLabel(l: Level) {
 function hud() {
   drawing.enabled = !paused && sim.state === "decision";
   const l = sim.level;
-  ui.innerHTML = `<div class="hud-top"><div class="scorebug"><div class="clock">${l.minute}</div><b>NST</b><strong>${sim.state === "goal" ? "2 — 1" : l.score}</strong><b>${l.rival}</b><div class="score-competition">${chapters[l.chapter].competition}</div></div><div class="hud-actions">${button("retry", "↻", "icon-button", 'aria-label="Restart moment"')}${button("pause", icons.pause, "icon-button", 'aria-label="Pause match"')}</div></div><div class="moment-info"><span class="eyebrow">${levelLabel(l)}</span><h2>${l.title}</h2><p>${l.brief}</p></div><div class="draw-hint"><span class="hint-symbol">⌁</span><div><b>${sim.passes < l.requiredPasses ? `${t.first} (${l.requiredPasses - sim.passes} to go)` : t.shoot}</b><small>${sim.passes < l.requiredPasses ? "Lead the runner. Open up the game." : "Straight for power. Curve for finesse."}</small></div></div><div class="hud-bottom"><span class="attempt-label">ATTEMPT <b>${String(attempt).padStart(2, "0")}</b></span><div class="kick-toggle" aria-label="Ball flight">${button("driven", t.driven, !loft ? "selected" : "")}${button("loft", t.lift, loft ? "selected" : "")}</div><div class="move-status"><span>${sim.passes} PASSES</span><b>${sim.state === "execution" ? "BALL IN PLAY" : "YOUR MOMENT"}</b></div></div>`;
+  ui.innerHTML = `<div class="hud-top"><div class="scorebug"><div class="clock">${l.minute}</div><b>NST</b><strong>${sim.state === "goal" ? "2 — 1" : l.score}</strong><b>${l.rival}</b><div class="score-competition">${chapters[l.chapter].competition}</div></div><div class="hud-actions">${heartsMarkup()}${button("retry", "↻", "icon-button", 'aria-label="Restart moment"')}${button("pause", icons.pause, "icon-button", 'aria-label="Pause match"')}</div></div><div class="moment-info"><span class="eyebrow">${levelLabel(l)}</span><h2>${l.title}</h2><p>${l.brief}</p></div><div class="draw-hint"><span class="hint-symbol">⌁</span><div><b>${sim.passes < l.requiredPasses ? `${t.first} (${l.requiredPasses - sim.passes} to go)` : t.shoot}</b><small>${sim.passes < l.requiredPasses ? "Lead the runner. Open up the game." : "Straight for power. Curve for finesse."}</small></div></div><div class="hud-bottom"><span class="attempt-label">ATTEMPT <b>${String(attempt).padStart(2, "0")}</b></span><div class="kick-toggle" aria-label="Ball flight">${button("driven", t.driven, !loft ? "selected" : "")}${button("loft", t.lift, loft ? "selected" : "")}</div><div class="move-status"><span>${sim.passes} PASSES</span><b>${sim.state === "execution" ? "BALL IN PLAY" : "YOUR MOMENT"}</b></div></div>`;
   if (sim.state === "execution") {
     const h = ui.querySelector(".draw-hint");
     if (h)
@@ -339,13 +384,16 @@ function act(k: Kick) {
     .start()
     .catch(() => notify("Audio is unavailable on this device."));
   if (page !== "play" || paused || sim.state !== "decision") return;
+  if (mode === "career" && !heartStatus(save.hearts).segments) { emptyHearts(); return; }
   sim.act(k);
+  if (mode === "career") account.beginCareerAttempt();
   drawing.enabled = false;
   k.shot ? save.stats.shots++ : save.stats.passes++;
   persist();
   hud();
 }
 function endResult() {
+  finishCareerAttempt(sim.state === "goal");
   if (sim.state === "goal" && !recordedResult) {
     recordedResult = true;
     const r = sim.result!;
@@ -467,7 +515,7 @@ function results() {
   const r = sim.result,
     l = sim.level;
   const won = sim.state === "goal";
-  ui.innerHTML = `<section class="result-panel" role="status"><div class="eyebrow">${levelLabel(l)} · ${won ? t.results : "TRY AGAIN"}</div><h1>${won ? r!.label : t.failure}</h1>${won ? `<div class="result-stars">${stars(r!.stars)}</div><p>${l.title} · ${r!.finish}</p><div class="result-stats"><div><small>GOAL QUALITY</small><b>${r!.quality}<i>/100</i></b></div><div><small>DISTANCE</small><b>${r!.distance.toFixed(1)}<i>m</i></b></div><div><small>PASSES</small><b>${r!.passes}</b></div></div><ul class="objectives">${l.stars.map((label, i) => `<li class="${i === 0 || (i === 1 && r!.passes >= Math.max(1, l.requiredPasses)) || (i === 2 && r!.quality >= (l.chapter < 2 ? 40 : 65)) ? "done" : ""}">${label}</li>`).join("")}</ul>` : `<p>${sim.reason}. ${sim.reason.includes("keeper") ? "Aim wider, add curve, or try a lifted finish." : sim.reason.includes("intercept") ? "Try leading the runner or lifting your pass." : "Adjust your line and go again."}</p>`}<div class="result-actions">${button(won && mode === "career" && l.id < 63 ? "next" : "retry", won && mode === "career" && l.id < 63 ? `${t.next} ↗` : `${t.retry} ↻`, "primary")}${button("replay", t.replay, "secondary")}${won ? button("share", t.share + " ↗", "text-button") : ""}${button("home", "Back to home", "text-button")}</div>${won && l.id === 63 ? `<div class="trophy">✦ ${mode === "career" ? "CONTINENTAL CHAMPIONS" : "CHAMPIONSHIP MOMENT"} ✦<p>${mode === "career" ? "Your story is written. Make every moment a three-star moment." : "Two passes. One unforgettable finish."}</p></div>` : ""}</section>`;
+  ui.innerHTML = `<section class="result-panel" role="status">${heartsMarkup()}<div class="eyebrow">${levelLabel(l)} · ${won ? t.results : "TRY AGAIN"}</div><h1>${won ? r!.label : t.failure}</h1>${won ? `<div class="result-stars">${stars(r!.stars)}</div><p>${l.title} · ${r!.finish}</p><div class="result-stats"><div><small>GOAL QUALITY</small><b>${r!.quality}<i>/100</i></b></div><div><small>DISTANCE</small><b>${r!.distance.toFixed(1)}<i>m</i></b></div><div><small>PASSES</small><b>${r!.passes}</b></div></div><ul class="objectives">${l.stars.map((label, i) => `<li class="${i === 0 || (i === 1 && r!.passes >= Math.max(1, l.requiredPasses)) || (i === 2 && r!.quality >= (l.chapter < 2 ? 40 : 65)) ? "done" : ""}">${label}</li>`).join("")}</ul>` : `<p>${sim.reason}. ${sim.reason.includes("keeper") ? "Aim wider, add curve, or try a lifted finish." : sim.reason.includes("intercept") ? "Try leading the runner or lifting your pass." : "Adjust your line and go again."}</p>`}<div class="result-actions">${button(won && mode === "career" && l.id < 63 ? "next" : "retry", won && mode === "career" && l.id < 63 ? `${t.next} ↗` : `${t.retry} ↻`, "primary")}${button("replay", t.replay, "secondary")}${won ? button("share", t.share + " ↗", "text-button") : ""}${button("home", "Back to home", "text-button")}</div>${won && l.id === 63 ? `<div class="trophy">✦ ${mode === "career" ? "CONTINENTAL CHAMPIONS" : "CHAMPIONSHIP MOMENT"} ✦<p>${mode === "career" ? "Your story is written. Make every moment a three-star moment." : "Two passes. One unforgettable finish."}</p></div>` : ""}</section>`;
 }
 function pause() {
   if (page !== "play") return;
@@ -639,7 +687,7 @@ ui.addEventListener(
     } else if (action === "how") {
       ui.insertAdjacentHTML(
         "beforeend",
-        `<div class="modal-backdrop"><section class="modal"><div class="eyebrow">THREE THINGS. ENDLESS POSSIBILITIES.</div><h2>READ. DRAW. BELIEVE.</h2><ol><li>Start at the ball. Draw toward a teammate to pass.</li><li>Lead their run, then draw into the goal to shoot.</li><li>Bend your line for curl. Choose Lifted for a chip or cross.</li></ol><p>Earn stars for scoring, completing passes and goal quality. Retry freely.</p>${button("continue", "Let’s play ↗", "primary")}${button("close-modal", "Back", "text-button")}</section></div>`,
+        `<div class="modal-backdrop"><section class="modal"><div class="eyebrow">THREE THINGS. ENDLESS POSSIBILITIES.</div><h2>READ. DRAW. BELIEVE.</h2><ol><li>Start at the ball. Draw toward a teammate to pass.</li><li>Lead their run, then draw into the goal to shoot.</li><li>Bend your line for curl. Choose Lifted for a chip or cross.</li></ol><p>Earn stars for scoring, completing passes and goal quality. Career has 25 heart segments: a failed attempt or leaving after a kick costs one. One segment returns every 3 minutes. Daily Shot and friend challenges are free.</p>${button("continue", "Let’s play ↗", "primary")}${button("close-modal", "Back", "text-button")}</section></div>`,
       );
     } else if (action === "close-modal")
       ui.querySelector(".modal-backdrop")?.remove();
@@ -798,6 +846,7 @@ document.addEventListener(
 );
 const menuSim = new Simulation(levels[3]);
 function frame(time: number) {
+  updateHearts();
   const dt = previous ? Math.min((time - previous) / 1000, 0.05) : 1 / 60;
   previous = time;
   let displayed: Frame;
@@ -886,6 +935,7 @@ window.addEventListener(
 window.addEventListener(
   "pagehide",
   (event) => {
+    finishCareerAttempt(sim.state === "goal");
     if (event.persisted) return;
     view.renderer.setAnimationLoop(null);
     drawing.dispose();

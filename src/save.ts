@@ -1,3 +1,4 @@
+import type { Hearts } from "./hearts.ts";
 export type Settings = {
   volume: number;
   music: number;
@@ -8,6 +9,7 @@ export type Settings = {
 };
 export type Save = {
   version: 1;
+  hearts: Hearts;
   stars: number[];
   best: number[];
   profile: {
@@ -38,6 +40,7 @@ export const KEY = "lastlight.save.v1";
 export function fresh(): Save {
   return {
     version: 1,
+    hearts: { spent: 0, fullAt: 0 },
     stars: Array(64).fill(0),
     best: Array(64).fill(0),
     profile: {
@@ -78,6 +81,12 @@ export function parseSave(raw: string | null): Save {
   try {
     const s = JSON.parse(raw);
     if (s?.version !== 1) return base;
+    if (s.hearts !== undefined) {
+      if (!Number.isSafeInteger(s.hearts?.spent) || s.hearts.spent < 0 ||
+          !Number.isSafeInteger(s.hearts?.fullAt) || s.hearts.fullAt < 0)
+        throw new Error("Invalid hearts");
+      base.hearts = { spent: s.hearts.spent, fullAt: s.hearts.fullAt };
+    }
     for (const k of ["stars", "best"] as const)
       if (Array.isArray(s[k]))
         base[k] = Array.from({ length: 64 }, (_, i) =>
