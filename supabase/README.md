@@ -81,3 +81,18 @@ Run the frontend tests with `npm test`, build/type-check with `npm run build`, a
 ## V3 migration
 
 After the accounts migration, apply [the hearts migration](migrations/202609100001_hearts.sql) before releasing V3. It preserves existing saves and RLS, validates optional legacy-compatible heart data, and adds `sync_game_save_v3`. Heart deductions merge as unacknowledged increments under the existing per-user row lock and operation ID. Guest imports explicitly exclude hearts. No global heart balance or timer is stored.
+
+## Account-based friend challenges
+
+Before deploying this version, run [the challenge migration](migrations/202609100002_challenges.sql) once in Supabase SQL Editor. It adds a separate participant-only challenge table and authenticated RPC; existing career saves are unchanged.
+
+Both players must sign in. A scored career/Daily Shot creates an invitation; the first other account to accept becomes the only opponent. Starting reserves one attempt on the server. Higher goal quality wins, ties draw, and a missed goal loses. Completion is idempotent and cannot overwrite an existing result. Challenges shows the latest 100 pending/running/completed records for the signed-in user; refresh the overview/history to see changes.
+
+Completed results are temporarily cached per user and challenge if saving fails. Reopen the overview on the same browser and choose Recover / save result. An interrupted unfinished attempt cannot restart after reload: finish in the original playing tab or explicitly forfeit. Old scenario-only links have no player identity and cannot be converted into shared history; create new invitations.
+
+These are casual challenges: scores still come from the browser simulation. The RPC validates score ranges, participant identity and state transitions, but does not independently replay the physics to prevent forged scores.
+
+Validation: run `node --experimental-strip-types --test tests/challenges-history.test.ts`. Run `psql -v ON_ERROR_STOP=1 -f tests/challenges.sql` only against an empty, disposable local PostgreSQL database (it creates a test auth schema). Before release, verify sign-in return, invite acceptance, one-attempt completion, and both histories with two real accounts in the deployed project.
+
+### Challenge access patch
+Apply `migrations/202609100003_challenge_access.sql` after the challenge migration, even if challenges are already installed. This rejects null/unknown RPC actions and checks participant access after every mutation. Challenge screens fetch on navigation or explicit refresh; account saves and window focus no longer trigger challenge reads.

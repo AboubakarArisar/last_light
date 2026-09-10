@@ -1,4 +1,5 @@
 import "./style.css";
+import { validChallengeId, challengeStanding, challengeError, type FriendChallenge } from "./challenges";
 import { replayFrame } from "./replay";
 import {
   chapters,
@@ -6,7 +7,6 @@ import {
   venues,
   daily,
   decodeChallenge,
-  challengeURL,
   type Level,
 } from "./levels";
 import {
@@ -27,6 +27,7 @@ import { Account, accountClient } from "./account";
 import { heartStatus } from "./hearts";
 const ui = document.querySelector<HTMLElement>("#ui")!,
   toast = document.querySelector<HTMLElement>("#toast")!;
+const gameIntro = ui.querySelector(".game-intro")!.outerHTML;
 let save: Save;
 let hadSave = false;
 try {
@@ -50,6 +51,16 @@ let page = "home",
   replaySpeed = 1,
   replayPaused = false,
   replayReturn = "result";
+let challengeId = new URL(location.href).searchParams.get("match");
+let activeChallenge: FriendChallenge | null = null;
+let challengeRequest: AbortController | null = null;
+let challengeBusy = false;
+let challengeSaving = false;
+let friendAttempt = false;
+let playingChallengeId: string | null = null;
+let createdChallengeId: string | null = null;
+let challengeSaveError = "";
+let pendingScore: number | null = null;
 let previousState = sim.state;
 let accumulator = 0;
 let previous = 0;
@@ -120,6 +131,11 @@ const account = new Account(client, {
   sound.update(save.settings);
   view.quality();
   if (switched) {
+    activeChallenge = null;
+    friendAttempt = false;
+    pendingScore = null;
+    playingChallengeId = null;
+    challengeRequest?.abort();
     recoveryTicket = null;
     recoveryStep = false;
     recoveryError = "";
@@ -127,7 +143,8 @@ const account = new Account(client, {
     previousState = sim.state;
     if (["play", "result", "replay"].includes(page)) screen("home");
   }
-  if (!authBusy && !recoveryStep && !["play", "result", "replay"].includes(page)) screen(page);
+  if (!authBusy && !recoveryStep && !["play", "result", "replay"].includes(page)
+    && (switched || !["friend", "challenges"].includes(page))) screen(page);
 }, () => {
   document.querySelectorAll<HTMLElement>("[data-save-status]").forEach((el) => {
     el.textContent = account.error || account.status;
@@ -206,11 +223,12 @@ function header(active = "") {
   const identity = !account.ready ? '<span class="guest-label">Checking sign-in…</span>' : account.user
     ? button("account", `<span class="account-avatar" aria-hidden="true">${escape(accountName().slice(0, 1).toUpperCase())}</span><span><b>${escape(accountName())}</b><small>✓ Signed in</small></span>`, "account-identity-button", `aria-label="Account for ${escape(accountName())}, signed in"`)
     : `<span class="guest-label">Guest</span>${button("account", "Sign in", "account-link")}${button("auth-signup", "Join the club ↗", "account-join")}`;
-  return `<header><button class="wordmark" data-action="home" aria-label="LAST LIGHT home">LAST<span>LIGHT</span><i>™</i></button><nav aria-label="Main navigation">${button("career", t.career, active === "career" ? "active" : "")}${button("daily", t.daily, active === "daily" ? "active" : "")}${button("customize", t.customize, active === "customize" ? "active" : "")}</nav><div class="profile-chip">${heartsMarkup()}${identity}${button("settings", "⚙", "icon-button", 'aria-label="Settings"')}</div></header>`;
+  return `<header><button class="wordmark" data-action="home" aria-label="LAST LIGHT home">LAST<span>LIGHT</span><i>™</i></button><nav aria-label="Main navigation">${button("career", t.career, active === "career" ? "active" : "")}${button("daily", t.daily, active === "daily" ? "active" : "")}${button("customize", t.customize, active === "customize" ? "active" : "")}${button("challenges", "Challenges", active === "challenges" ? "active" : "")}</nav><div class="profile-chip">${heartsMarkup()}${identity}${button("settings", "⚙", "icon-button", 'aria-label="Settings"')}</div></header>`;
 }
 function screen(name: string) {
   if (page === "play" && name !== "play") finishCareerAttempt(sim.state === "goal");
   if (name !== "account") { recoveryTicket = null; recoveryStep = false; recoveryError = ""; }
+  challengeRequest?.abort();
   page = name;
   paused = false;
   drawing.enabled = false;
@@ -220,6 +238,7 @@ function screen(name: string) {
   if (name === "home") home();
   else if (name === "career") career();
   else if (name === "daily") dailyScreen();
+  else if (name === "friend" || name === "challenges") void challengesScreen(name === "friend");
   else if (name === "customize") customize();
   else if (name === "stats") stats();
   else if (name === "settings") settings();
@@ -227,6 +246,7 @@ function screen(name: string) {
   else if (name === "play") hud();
   else if (name === "result") results();
   else if (name === "replay") replayUI();
+  if (name === "home") ui.querySelector(".home-bottom")?.insertAdjacentHTML("beforeend", gameIntro);
   ui.scrollTop = 0;
 }
 function home() {
@@ -338,6 +358,11 @@ function settings() {
   ui.innerHTML = `${header()}<section class="page-content settings-page"><div class="eyebrow">YOUR GAME. YOUR WAY.</div><h1>SETTINGS.</h1><form id="settings-form">${(["volume", "music", "crowd"] as const).map((k, i) => `<label class="slider-label">${["Master volume", "Menu music", "Stadium ambience"][i]}<output>${Math.round(s[k] * 100)}%</output><input name="${k}" aria-label="${["Master volume", "Menu music", "Stadium ambience"][i]}" type="range" min="0" max="1" step=".05" value="${s[k]}"></label>`).join("")}<label>Graphics<select name="graphics">${["auto", "low", "medium", "high"].map((v) => `<option ${s.graphics === v ? "selected" : ""}>${v}</option>`).join("")}</select></label><label class="toggle">Reduced camera motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label><label class="toggle">Haptic feedback<input name="vibration" type="checkbox" ${s.vibration ? "checked" : ""}></label><p class="muted">Mouse, touch or pen: draw from the ball.<br>Keyboard: arrow keys aim, Enter shoots, L switches lift, Escape pauses, R retries.</p></form><div class="settings-footer">${button("home", "← Back to home", "text-button")}${!account.user ? button("reset", "Reset guest progress", "danger") : button("account", "Manage account ↗", "text-button")}</div><small class="muted">${escape(account.error || account.status)}. ${account.user ? "Your account keeps your progress across devices." : "Sign in to back up progress to your account."}</small></section>`;
 }
 function start(level: Level, newMode = "career", retry = false) {
+  if (newMode === "friend" && (!account.user || !friendAttempt || retry)) {
+    notify("Open the challenge overview to play your one attempt."); return;
+  }
+  if (newMode !== "friend") friendAttempt = false;
+  createdChallengeId = null;
   if (!account.canPlay) {
     notify(account.ready ? "This account is open in another tab. Close that tab and reload here." : "Checking your sign-in. Please try again in a moment.");
     return;
@@ -372,7 +397,7 @@ function levelLabel(l: Level) {
 function hud() {
   drawing.enabled = !paused && sim.state === "decision";
   const l = sim.level;
-  ui.innerHTML = `<div class="hud-top"><div class="scorebug"><div class="clock">${l.minute}</div><b>NST</b><strong>${sim.state === "goal" ? "2 — 1" : l.score}</strong><b>${l.rival}</b><div class="score-competition">${chapters[l.chapter].competition}</div></div><div class="hud-actions">${heartsMarkup()}${button("retry", "↻", "icon-button", 'aria-label="Restart moment"')}${button("pause", icons.pause, "icon-button", 'aria-label="Pause match"')}</div></div><div class="moment-info"><span class="eyebrow">${levelLabel(l)}</span><h2>${l.title}</h2><p>${l.brief}</p></div><div class="draw-hint"><span class="hint-symbol">⌁</span><div><b>${sim.passes < l.requiredPasses ? `${t.first} (${l.requiredPasses - sim.passes} to go)` : t.shoot}</b><small>${sim.passes < l.requiredPasses ? "Lead the runner. Open up the game." : "Straight for power. Curve for finesse."}</small></div></div><div class="hud-bottom"><span class="attempt-label">ATTEMPT <b>${String(attempt).padStart(2, "0")}</b></span><div class="kick-toggle" aria-label="Ball flight">${button("driven", t.driven, !loft ? "selected" : "")}${button("loft", t.lift, loft ? "selected" : "")}</div><div class="move-status"><span>${sim.passes} PASSES</span><b>${sim.state === "execution" ? "BALL IN PLAY" : "YOUR MOMENT"}</b></div></div>`;
+  ui.innerHTML = `<div class="hud-top"><div class="scorebug"><div class="clock">${l.minute}</div><b>NST</b><strong>${sim.state === "goal" ? "2 — 1" : l.score}</strong><b>${l.rival}</b><div class="score-competition">${chapters[l.chapter].competition}</div></div><div class="hud-actions">${heartsMarkup()}${mode !== "friend" ? button("retry", "↻", "icon-button", 'aria-label="Restart moment"') : ""}${button("pause", icons.pause, "icon-button", 'aria-label="Pause match"')}</div></div><div class="moment-info"><span class="eyebrow">${levelLabel(l)}</span><h2>${l.title}</h2><p>${l.brief}</p>${mode === "friend" ? `<p class="accent">${`Beat ${activeChallenge?.target ?? 0}/100 · One attempt`}</p>` : ""}</div><div class="draw-hint"><span class="hint-symbol">⌁</span><div><b>${sim.passes < l.requiredPasses ? `${t.first} (${l.requiredPasses - sim.passes} to go)` : t.shoot}</b><small>${sim.passes < l.requiredPasses ? "Lead the runner. Open up the game." : "Straight for power. Curve for finesse."}</small></div></div><div class="hud-bottom"><span class="attempt-label">ATTEMPT <b>${String(attempt).padStart(2, "0")}</b></span><div class="kick-toggle" aria-label="Ball flight">${button("driven", t.driven, !loft ? "selected" : "")}${button("loft", t.lift, loft ? "selected" : "")}</div><div class="move-status"><span>${sim.passes} PASSES</span><b>${sim.state === "execution" ? "BALL IN PLAY" : "YOUR MOMENT"}</b></div></div>`;
   if (sim.state === "execution") {
     const h = ui.querySelector(".draw-hint");
     if (h)
@@ -393,6 +418,12 @@ function act(k: Kick) {
   hud();
 }
 function endResult() {
+  if (mode === "friend" && friendAttempt && playingChallengeId) {
+    challengeId = playingChallengeId;
+    friendAttempt = false;
+    pendingScore = sim.state === "goal" ? sim.result!.quality : -1;
+    void submitChallengeResult();
+  }
   finishCareerAttempt(sim.state === "goal");
   if (sim.state === "goal" && !recordedResult) {
     recordedResult = true;
@@ -500,7 +531,8 @@ async function submitAuth(form: HTMLFormElement) {
     }
     form.reset();
     authBusy = false;
-    accountScreen();
+    if (formMode === "login" && challengeId) screen("friend");
+    else accountScreen();
   } catch (error) {
     message.textContent = error instanceof Error ? error.message : "Could not complete the request. Please retry.";
     message.focus();
@@ -515,7 +547,7 @@ function results() {
   const r = sim.result,
     l = sim.level;
   const won = sim.state === "goal";
-  ui.innerHTML = `<section class="result-panel" role="status">${heartsMarkup()}<div class="eyebrow">${levelLabel(l)} · ${won ? t.results : "TRY AGAIN"}</div><h1>${won ? r!.label : t.failure}</h1>${won ? `<div class="result-stars">${stars(r!.stars)}</div><p>${l.title} · ${r!.finish}</p><div class="result-stats"><div><small>GOAL QUALITY</small><b>${r!.quality}<i>/100</i></b></div><div><small>DISTANCE</small><b>${r!.distance.toFixed(1)}<i>m</i></b></div><div><small>PASSES</small><b>${r!.passes}</b></div></div><ul class="objectives">${l.stars.map((label, i) => `<li class="${i === 0 || (i === 1 && r!.passes >= Math.max(1, l.requiredPasses)) || (i === 2 && r!.quality >= (l.chapter < 2 ? 40 : 65)) ? "done" : ""}">${label}</li>`).join("")}</ul>` : `<p>${sim.reason}. ${sim.reason.includes("keeper") ? "Aim wider, add curve, or try a lifted finish." : sim.reason.includes("intercept") ? "Try leading the runner or lifting your pass." : "Adjust your line and go again."}</p>`}<div class="result-actions">${button(won && mode === "career" && l.id < 63 ? "next" : "retry", won && mode === "career" && l.id < 63 ? `${t.next} ↗` : `${t.retry} ↻`, "primary")}${button("replay", t.replay, "secondary")}${won ? button("share", t.share + " ↗", "text-button") : ""}${button("home", "Back to home", "text-button")}</div>${won && l.id === 63 ? `<div class="trophy">✦ ${mode === "career" ? "CONTINENTAL CHAMPIONS" : "CHAMPIONSHIP MOMENT"} ✦<p>${mode === "career" ? "Your story is written. Make every moment a three-star moment." : "Two passes. One unforgettable finish."}</p></div>` : ""}</section>`;
+  ui.innerHTML = `<section class="result-panel" role="status">${heartsMarkup()}<div class="eyebrow">${levelLabel(l)} · ${won ? t.results : "TRY AGAIN"}</div><h1>${won ? r!.label : t.failure}</h1>${mode === "friend" ? `<div class="account-save-card"><h2>${activeChallenge?.completed_at ? challengeStanding(activeChallenge, account.user!.id).toUpperCase() : "SAVING RESULT…"}</h2><p>Your goal quality: ${won ? r!.quality : "No goal"} · Target: ${activeChallenge?.target}</p>${challengeSaveError ? `<p role="alert">${escape(challengeSaveError)}</p>${button("save-challenge", "Retry saving result", "secondary")}` : ""}</div>` : ""}${won ? `<div class="result-stars">${stars(r!.stars)}</div><p>${l.title} · ${r!.finish}</p><div class="result-stats"><div><small>GOAL QUALITY</small><b>${r!.quality}<i>/100</i></b></div><div><small>DISTANCE</small><b>${r!.distance.toFixed(1)}<i>m</i></b></div><div><small>PASSES</small><b>${r!.passes}</b></div></div><ul class="objectives">${l.stars.map((label, i) => `<li class="${i === 0 || (i === 1 && r!.passes >= Math.max(1, l.requiredPasses)) || (i === 2 && r!.quality >= (l.chapter < 2 ? 40 : 65)) ? "done" : ""}">${label}</li>`).join("")}</ul>` : `<p>${sim.reason}. ${sim.reason.includes("keeper") ? "Aim wider, add curve, or try a lifted finish." : sim.reason.includes("intercept") ? "Try leading the runner or lifting your pass." : "Adjust your line and go again."}</p>`}<div class="result-actions">${mode !== "friend" ? button(won && mode === "career" && l.id < 63 ? "next" : "retry", won && mode === "career" && l.id < 63 ? `${t.next} ↗` : `${t.retry} ↻`, "primary") : ""}${button("replay", t.replay, "secondary")}${won && mode !== "friend" ? button("share", t.share + " ↗", "text-button") : ""}${mode === "friend" ? button("friend", "Challenge overview", "text-button") : ""}${button("home", "Back to home", "text-button")}</div>${won && l.id === 63 ? `<div class="trophy">✦ ${mode === "career" ? "CONTINENTAL CHAMPIONS" : "CHAMPIONSHIP MOMENT"} ✦<p>${mode === "career" ? "Your story is written. Make every moment a three-star moment." : "Two passes. One unforgettable finish."}</p></div>` : ""}</section>`;
 }
 function pause() {
   if (page !== "play") return;
@@ -524,7 +556,7 @@ function pause() {
   drawing.cancel();
   ui.insertAdjacentHTML(
     "beforeend",
-    `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><div class="eyebrow">${levelLabel(sim.level)} · ${sim.level.title}</div><h1>HALF<br><em>A MOMENT.</em></h1>${button("resume", t.resume + " ↗", "primary")}${button("retry", "Restart moment", "secondary")}${button("home", "Back to home", "text-button")}</section></div>`,
+    `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><div class="eyebrow">${levelLabel(sim.level)} · ${sim.level.title}</div><h1>HALF<br><em>A MOMENT.</em></h1>${button("resume", t.resume + " ↗", "primary")}${mode !== "friend" ? button("retry", "Restart moment", "secondary") : button("friend", "Challenge overview", "secondary")}${button("home", "Back to home", "text-button")}</section></div>`,
   );
   sound.suspend();
 }
@@ -532,13 +564,120 @@ function replayUI() {
   drawing.enabled = false;
   ui.innerHTML = `<div class="replay-top"><span class="eyebrow"><span class="live-dot"></span> ACTION REPLAY</span>${button("exit-replay", "×", "icon-button", 'aria-label="Exit replay"')}</div><div class="replay-bottom">${button("replay-pause", replayPaused ? "▶" : "Ⅱ", "icon-button", 'aria-label="Pause or play replay"')}<input id="replay-seek" aria-label="Replay position" type="range" min="0" max="${Math.max(0.1, sim.recorded.at(-1)!.time)}" step=".01" value="${replayTime}">${button("replay-speed", `${replaySpeed}×`, "secondary")}<span class="wordmark">LAST<span>LIGHT</span></span></div>`;
 }
-function share() {
-  const url = challengeURL(sim.level, location.href);
-  ui.insertAdjacentHTML(
-    "beforeend",
-    `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="Challenge a friend"><div class="eyebrow">I SCORED THIS. CAN YOU?</div><h2>PASS IT ON.</h2><p>Your friend gets this exact scenario. No account needed.</p><input id="challenge-link" readonly value="${escape(url)}" aria-label="Challenge URL">${button("copy-link", "Copy challenge link ↗", "primary")}${typeof navigator.share === "function" ? button("native-share", "Share…", "secondary") : ""}${button("close-modal", "Done", "text-button")}</section></div>`,
-  );
-  ui.querySelector<HTMLInputElement>("#challenge-link")?.focus();
+
+function matchURL() {
+  const url = new URL(location.href); url.search = ""; url.hash = "";
+  url.searchParams.set("match", challengeId!); return url.href;
+}
+async function challengeRPC(action: string, id: string, extra: Record<string, number> = {}, signal: AbortSignal = abort.signal) {
+  if (!account.user || !client) throw new Error("Sign in to use challenges.");
+  const user = account.user.id;
+  const { data, error } = await client.rpc("friend_challenge", { p_action: action, p_id: id, ...extra }).abortSignal(signal);
+  if (error) throw new Error(challengeError(error));
+  if (account.user?.id !== user) throw new Error("Your account changed. Reopen the challenge.");
+  return data as FriendChallenge;
+}
+function challengeCard(c: FriendChallenge) {
+  return '<article class="account-save-card"><h2>' + escape(c.creator_name) + ' vs ' + escape(c.opponent_name || 'Waiting for a friend') + '</h2><p>' +
+    escape(challengeStanding(c, account.user!.id)) + ' · Goal quality: ' + c.target + ' / ' + (c.result === -1 ? 'Missed' : c.result ?? '—') + '</p>' +
+    button('match:' + c.id, 'Open overview ↗', 'secondary') + '</article>';
+}
+async function challengesScreen(detail: boolean) {
+  challengeRequest?.abort();
+  const request = new AbortController(); challengeRequest = request;
+  ui.innerHTML = header('challenges') + '<section class="page-content"><h1>CHALLENGES.</h1><div id="challenge-content" role="status">Loading…</div></section>';
+  const host = ui.querySelector<HTMLElement>('#challenge-content')!;
+  if (!account.ready) { host.textContent = 'Checking sign-in…'; return; }
+  if (!account.user || !client) {
+    host.innerHTML = '<p>Sign in to challenge a friend and keep the result in both players’ history.</p>' + button('auth-login', 'Sign in to continue ↗', 'primary'); return;
+  }
+  const user = account.user.id;
+  try {
+    if (detail) {
+      if (!validChallengeId(challengeId)) throw new Error('Invalid invitation. Ask your friend for a new link.');
+      const c = await challengeRPC('view', challengeId, {}, request.signal);
+      if (request.signal.aborted || account.user?.id !== user) return;
+      activeChallenge = c;
+      const opponent = c.opponent_id === user;
+      const creator = c.creator_id === user;
+      host.innerHTML = '<h2>' + escape(c.creator_name) + ' vs ' + escape(c.opponent_name || 'You?') + '</h2><p>' + escape(levels[c.level_id].title) + '</p><div class="daily-details"><div><small>TARGET</small><b>' + c.target + '/100</b></div><div><small>FRIEND’S RESULT</small><b>' + (c.result === -1 ? 'No goal' : c.result ?? '—') + '</b></div></div><p>' + escape(challengeStanding(c, user)) + '</p><p>One attempt. Higher goal quality wins; equal scores draw. A missed goal loses. Results are saved for both players.</p>' +
+        (!creator && !c.opponent_id ? button('accept-challenge', 'Accept invitation ↗', 'primary') : '') +
+        (opponent && !c.started_at ? button('start-challenge', 'Play my one attempt ↗', 'primary') : '') +
+        (opponent && c.started_at && !c.completed_at && friendAttempt && playingChallengeId === c.id ? button('resume-challenge', 'Resume attempt', 'primary') : '') +
+        (opponent && c.started_at && !c.completed_at ? '<p>Your attempt has started. Return to the playing tab to finish, or record a loss here. Reloading cannot start another attempt.</p>' + button('save-challenge', 'Recover / save result', 'secondary') + button('forfeit-challenge', 'Forfeit — record a loss', 'text-button') : '') +
+        (creator && !c.opponent_id ? '<p>Send this invitation to one friend. The first signed-in friend to accept becomes your opponent.</p><input id="challenge-link" readonly aria-label="Challenge invitation" value="' + escape(matchURL()) + '">' + button('copy-link', 'Copy invitation', 'primary') : '') +
+        button('challenges', 'All challenges', 'secondary') + button('friend', 'Refresh overview', 'text-button');
+    } else {
+      const { data, error } = await client.from('friend_challenges').select('id,creator_id,opponent_id,creator_name,opponent_name,level_id,seed,target,result,started_at,completed_at,created_at').order('created_at', { ascending: false }).limit(100).abortSignal(request.signal);
+      if (request.signal.aborted || account.user?.id !== user) return;
+      if (error) throw new Error(challengeError(error));
+      const rows = data as FriendChallenge[];
+      host.innerHTML = '<p>Your latest 100 challenges. Open an overview to check the latest result.</p><h2>Pending & running</h2>' + (rows.filter(c => !c.completed_at).map(challengeCard).join('') || '<p>No running challenges. Score in career or Daily Shot to invite a friend.</p>') + '<h2>Completed</h2>' + (rows.filter(c => c.completed_at).map(challengeCard).join('') || '<p>No completed challenges yet.</p>') + button('challenges', 'Refresh history', 'secondary');
+    }
+  } catch (error) {
+    if (!request.signal.aborted) host.innerHTML = '<p role="alert">' + escape(error instanceof Error ? error.message : 'Could not load challenges.') + '</p>' + button(detail ? 'friend' : 'challenges', 'Retry', 'secondary');
+  }
+}
+async function share() {
+  if (mode === 'friend') { screen('friend'); return; }
+  if (!account.user) { screen('account'); notify('Sign in, then score a goal to create a challenge.'); return; }
+  if (!sim.result || challengeBusy) return;
+  challengeBusy = true;
+  try {
+    createdChallengeId ??= crypto.randomUUID();
+    const c = await challengeRPC('create', createdChallengeId, { p_level: sim.level.id, p_seed: sim.level.seed, p_score: sim.result.quality });
+    challengeId = c.id; activeChallenge = c;
+    ui.insertAdjacentHTML('beforeend', '<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="Challenge a friend"><h2>BEAT ' + c.target + '/100.</h2><p>One friend. One attempt. Both players must sign in; the result appears in both challenge histories.</p><input id="challenge-link" readonly aria-label="Challenge invitation" value="' + escape(matchURL()) + '">' + button('copy-link', 'Copy invitation', 'primary') + (typeof navigator.share === 'function' ? button('native-share', 'Share…', 'secondary') : '') + button('friend', 'Challenge overview', 'secondary') + button('close-modal', 'Done', 'text-button') + '</section></div>');
+  } catch (error) { notify(error instanceof Error ? error.message : 'Could not create challenge.'); }
+  finally { challengeBusy = false; }
+}
+function resultKey() { return 'lastlight:challenge-result:' + account.user!.id + ':' + challengeId; }
+async function submitChallengeResult() {
+  if (challengeSaving || !challengeId || !account.user || pendingScore === null) return;
+  challengeSaving = true;
+  const id = challengeId, key = resultKey(), score = pendingScore;
+  challengeSaveError = '';
+  try { localStorage.setItem(key, String(score)); }
+  catch { challengeSaveError = 'Browser storage is unavailable. Keep this tab open until the result saves.'; }
+  try {
+    const c = await challengeRPC('finish', id, { p_score: score });
+    if (challengeId === id) { activeChallenge = c; pendingScore = null; challengeSaveError = ''; }
+    try { localStorage.removeItem(key); } catch { notify('Result saved online; local result cache could not be cleared.'); }
+  } catch (error) { challengeSaveError = error instanceof Error ? error.message : 'Result not saved. Retry when connected.'; }
+  finally { challengeSaving = false; }
+  if (challengeSaveError) notify(challengeSaveError);
+  if (page === 'result' && mode === 'friend') results();
+}
+async function challengeAction(action: string) {
+  if (challengeBusy || challengeSaving) return;
+  challengeBusy = true;
+  try {
+    if (action.startsWith('match:')) {
+      if (pendingScore !== null) throw new Error('Save your completed result before opening another challenge.');
+      challengeId = action.slice(6); screen('friend'); return;
+    }
+    if (!validChallengeId(challengeId) || !account.user) throw new Error('Sign in and open a valid invitation.');
+    if (action === 'accept-challenge') { activeChallenge = await challengeRPC('accept', challengeId); screen('friend'); }
+    if (action === 'start-challenge') {
+      if (!account.canPlay) throw new Error('Close the other game tab and reload before starting.');
+      activeChallenge = await challengeRPC('start', challengeId);
+      pendingScore = null; challengeSaveError = ''; friendAttempt = true; playingChallengeId = challengeId;
+      const level = decodeChallenge(activeChallenge.level_id + '.' + activeChallenge.seed)!;
+      start(level, 'friend');
+    }
+    if (action === 'resume-challenge' && friendAttempt && playingChallengeId === challengeId) { screen('play'); return; }
+    if (action === 'save-challenge' || action === 'forfeit-challenge') {
+      if (action === 'forfeit-challenge') { pendingScore = -1; friendAttempt = false; }
+      else if (pendingScore === null) {
+        const saved = localStorage.getItem(resultKey());
+        if (saved === null || !/^(?:-1|[0-9]{1,2}|100)$/.test(saved)) throw new Error('No completed result on this browser. Finish in the playing tab or forfeit.');
+        pendingScore = Number(saved);
+      }
+      await submitChallengeResult();
+      if (page !== 'result') screen('friend');
+    }
+  } catch (error) { notify(error instanceof Error ? error.message : 'Challenge action failed.'); }
+  finally { challengeBusy = false; }
 }
 
 ui.addEventListener(
@@ -550,6 +689,9 @@ ui.addEventListener(
     if (!el || el.disabled) return;
     if (authBusy) return;
     const action = el.dataset.action!;
+    if (["accept-challenge", "start-challenge", "resume-challenge", "forfeit-challenge", "save-challenge"].includes(action) || action.startsWith("match:")) {
+      await challengeAction(action); return;
+    }
     if (action === "toggle-password") {
       const password = ui.querySelector<HTMLInputElement>("#auth-password")!;
       const show = password.type === "password";
@@ -560,10 +702,10 @@ ui.addEventListener(
       return;
     }
     if (action === "finish-signup") {
-      if (recoveryTicket && ui.querySelector<HTMLInputElement>("#ticket-saved")?.checked) screen("home");
+      if (recoveryTicket && ui.querySelector<HTMLInputElement>("#ticket-saved")?.checked) screen(challengeId ? "friend" : "home");
       return;
     }
-    if (action === "skip-recovery") { screen("home"); return; }
+    if (action === "skip-recovery") { screen(challengeId ? "friend" : "home"); return; }
     if (action === "issue-ticket") { await prepareRecovery(el); return; }
     if (action === "download-ticket" && recoveryTicket) {
       if (ticketDownloadURL) URL.revokeObjectURL(ticketDownloadURL);
@@ -625,11 +767,12 @@ ui.addEventListener(
     }
     sound.play("ui");
     if (
-      ["home", "career", "daily", "customize", "stats", "settings", "account"].includes(
+      ["home", "career", "daily", "friend", "challenges", "customize", "stats", "settings", "account"].includes(
         action,
       )
     )
       screen(action);
+
     else if (action === "continue") start(levels[unlocked(save)]);
     else if (action.startsWith("level:")) {
       const id = Number(action.split(":")[1]);
@@ -660,13 +803,14 @@ ui.addEventListener(
     } else if (action === "replay-speed") {
       replaySpeed = replaySpeed === 1 ? 0.5 : replaySpeed === 0.5 ? 2 : 1;
       replayUI();
-    } else if (action === "share") share();
+    } else if (action === "share") await share();
     else if (action === "copy-link") {
       try {
         await navigator.clipboard.writeText(
-          challengeURL(sim.level, location.href),
+          matchURL(),
         );
-        notify("Challenge link copied.");
+        el.textContent = "✓ Link copied";
+        notify("Link copied. Send it to your friend to challenge them.");
       } catch {
         const field = ui.querySelector<HTMLInputElement>("#challenge-link");
         field?.focus();
@@ -677,8 +821,8 @@ ui.addEventListener(
       try {
         await navigator.share({
           title: "LAST LIGHT",
-          text: "I scored this. Can you beat it?",
-          url: challengeURL(sim.level, location.href),
+          text: "Join my LAST LIGHT challenge. Sign in and take your one shot!",
+          url: matchURL(),
         });
       } catch (e) {
         if ((e as Error).name !== "AbortError")
@@ -941,6 +1085,7 @@ window.addEventListener(
     drawing.dispose();
     sound.dispose();
     view.dispose();
+    challengeRequest?.abort();
     abort.abort();
     clearTimeout(toastTimer);
     clearTimeout(ticketDownloadTimer);
@@ -949,18 +1094,10 @@ window.addEventListener(
   },
   { signal: abort.signal },
 );
-const challenge = decodeChallenge(
-  new URL(location.href).searchParams.get("challenge"),
-);
-screen("home");
-void account.initialize().then(() => {
-  if (challenge && account.canPlay) {
-    start(challenge, "friend");
-    notify("Your friend scored this. Can you?");
-  } else if (challenge) {
-    notify("Your challenge is ready. Close any other game tab, then reload this link.");
-  }
-}).catch(() => notify("Account initialization failed. Please reload and try again."));
+screen(challengeId ? "friend" : "home");
+if (new URL(location.href).searchParams.has("challenge"))
+  notify("This old challenge link is no longer supported. Ask your friend for a new invitation.");
+void account.initialize().catch(() => notify("Account initialization failed. Please reload and try again."));
 // Read-only development diagnostics; no production debug UI or mutation shortcuts.
 if (import.meta.env.DEV)
   Object.defineProperty(window, "lastLight", {

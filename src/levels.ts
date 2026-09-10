@@ -299,12 +299,22 @@ export function daily(date = new Date().toISOString().slice(0, 10)) {
   const seed = Number(date.replaceAll("-", ""));
   return { ...makeLevel(24 + (seed % 32), seed), title: "Shot of the day" };
 }
-export function challengeURL(level: Level, base: string) {
+export function challengeURL(level: Level, base: string, quality?: number) {
   const url = new URL(base);
   url.search = "";
   url.hash = "";
   url.searchParams.set("challenge", `${level.id}.${level.seed}`);
+  if (quality !== undefined && Number.isInteger(quality) && quality >= 0 && quality <= 100)
+    url.searchParams.set("target", String(quality));
   return url.href;
+}
+export function challengeTarget(value: string | null): number | null {
+  return value !== null && /^(?:\d{1,2}|100)$/.test(value) ? Number(value) : null;
+}
+export function challengeOutcome(quality: number | null, target: number | null) {
+  if (quality === null) return "CHALLENGE NOT BEATEN";
+  if (target === null) return "CHALLENGE COMPLETE";
+  return quality > target ? "YOU BEAT YOUR FRIEND!" : quality === target ? "IT’S A TIE!" : "TARGET STILL STANDS";
 }
 export function decodeChallenge(value: string | null): Level | null {
   if (!value || !/^\d{1,2}\.\d{1,10}$/.test(value)) return null;

@@ -30,7 +30,7 @@ Host the contents of `dist/` at a site's root. HTTPS enables clipboard sharing, 
 - Career starts with five hearts of five segments (25 attempts). Each failed attempt or exit/restart after a kick costs one segment. One segment regenerates every three minutes, starting with the first loss; further losses do not reset the countdown. Daily and friend challenges are free. Retry at any time while segments remain. A missed shot, interception or failed objective ends the attempt; a loose rebound can be recovered.
 - Arrow keys position an aim target, Enter executes, L toggles lift, Escape pauses and R restarts. Touch and pen use the same Pointer Events path.
 
-Career contains 64 seeded scenarios across eight chapters. Stars unlock cosmetic kits, boots and celebrations. Progress, profile, settings, daily results and football statistics are versioned in local storage and synced to Supabase for signed-in players. The daily challenge rolls over at midnight UTC. Friend URLs recreate a scenario and seed without changing career unlocks. Replays retain sampled simulation frames in memory for the current attempt.
+Career contains 64 seeded scenarios across eight chapters. Stars unlock cosmetic kits, boots and celebrations. Progress, profile, settings, daily results and football statistics are versioned in local storage and synced to Supabase for signed-in players. The daily challenge rolls over at midnight UTC. Friend invitations require both players to sign in and save one-attempt results in shared challenge history. Apply the challenge migration in supabase/README.md before deployment. Replays retain sampled simulation frames in memory for the current attempt.
 
 ## Structure
 
