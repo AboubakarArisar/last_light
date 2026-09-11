@@ -6,8 +6,14 @@ export class Sound {
   noise: AudioBuffer | null = null;
   ambience: AudioBufferSourceNode | null = null;
   settings: Settings;
-  musicTimer: number | undefined;
-  notes = 0;
+  tracks = ["/music/yque-fue.mp3", "/music/waka-waka.mp3", "/music/daidai.mp3"];
+  track = 0;
+  soundtrack: HTMLAudioElement | null = null;
+  soundtrackSource: MediaElementAudioSourceNode | null = null;
+  soundtrackGain: GainNode | null = null;
+  musicEnabled = true;
+  failedTracks = new Set<number>();
+  onMusicChange = () => {};
   constructor(settings: Settings) {
     this.settings = settings;
   }
@@ -16,6 +22,20 @@ export class Sound {
       this.context = new AudioContext();
       this.master = this.context.createGain();
       this.master.connect(this.context.destination);
+      this.soundtrack = new Audio();
+      this.soundtrack.preload = "none";
+      this.soundtrackSource = this.context.createMediaElementSource(this.soundtrack);
+      this.soundtrackGain = this.context.createGain();
+      this.soundtrackSource.connect(this.soundtrackGain);
+      this.soundtrackGain.connect(this.master);
+      this.soundtrack.onended = () => this.nextTrack();
+      this.soundtrack.onplay = () => this.onMusicChange();
+      this.soundtrack.onpause = () => this.onMusicChange();
+      this.soundtrack.onerror = () => {
+        console.warn("Could not load soundtrack:", this.tracks[this.track]);
+        this.failedTracks.add(this.track);
+        this.nextTrack();
+      };
       this.noise = this.context.createBuffer(
         1,
         this.context.sampleRate * 2,
@@ -37,9 +57,12 @@ export class Sound {
     }
     if (this.context.state === "suspended") await this.context.resume();
     this.update(this.settings);
+    this.resumeMusic();
   }
   update(s: Settings) {
     this.settings = s;
+    if (this.context && this.soundtrackGain)
+      this.soundtrackGain.gain.setTargetAtTime(s.music, this.context.currentTime, 0.08);
     if (this.context && this.master && this.bed) {
       this.master.gain.setTargetAtTime(
         s.volume,
@@ -130,28 +153,59 @@ export class Sound {
     )
       navigator.vibrate(event === "goal" ? [25, 40, 35] : 15);
   }
-  menu(active: boolean) {
-    window.clearInterval(this.musicTimer);
-    if (!active) return;
-    this.musicTimer = window.setInterval(() => {
-      if (this.context?.state === "running" && this.settings.music > 0) {
-        this.tone(
-          [110, 130.81, 146.83, 98][Math.floor(this.notes / 4) % 4],
-          0.4,
-          0.07 * this.settings.music,
-          "triangle",
-        );
-        if (this.notes % 2 === 0)
-          this.noiseHit(0.035, 0.055 * this.settings.music, 2600);
-        this.notes++;
-      }
-    }, 420);
+  setMusicEnabled(active: boolean) {
+    this.musicEnabled = active;
+    if (active) this.resumeMusic();
+    else this.soundtrack?.pause();
+    this.onMusicChange();
+  }
+  resumeMusic() {
+    const audio = this.soundtrack;
+    if (!audio || !this.musicEnabled || this.context?.state !== "running" ||
+        this.failedTracks.size === this.tracks.length) return;
+    if (!audio.getAttribute("src")) audio.src = this.tracks[this.track];
+    if (audio.paused) void audio.play().catch((error: unknown) => {
+      // A pause or track change can cancel a pending play request.
+      if (!(error instanceof DOMException && error.name === "AbortError"))
+        console.warn("Music playback unavailable; retry on the next interaction.", error);
+      this.onMusicChange();
+    });
+  }
+  nextTrack() {
+    if (!this.soundtrack || this.failedTracks.size === this.tracks.length) return;
+    do { this.track = (this.track + 1) % this.tracks.length; }
+    while (this.failedTracks.has(this.track));
+    this.soundtrack.src = this.tracks[this.track];
+    this.onMusicChange();
+    this.resumeMusic();
+  }
+  selectTrack(index: number) {
+    if (!Number.isInteger(index) || index < 0 || index >= this.tracks.length) return;
+    this.track = index;
+    this.failedTracks.delete(index);
+    if (this.soundtrack) this.soundtrack.src = this.tracks[index];
+    this.onMusicChange();
+    this.resumeMusic();
   }
   suspend() {
+    this.soundtrack?.pause();
     void this.context?.suspend();
   }
   dispose() {
-    clearInterval(this.musicTimer);
+    this.musicEnabled = false;
+    if (this.soundtrack) {
+      this.soundtrack.onended = null;
+      this.soundtrack.onerror = null;
+      this.soundtrack.onplay = null;
+      this.soundtrack.onpause = null;
+      this.soundtrack.pause();
+      this.soundtrack.removeAttribute("src");
+      this.soundtrack.load();
+      this.soundtrack = null;
+    }
+    this.soundtrackSource?.disconnect();
+    this.onMusicChange = () => {};
+    this.soundtrackGain?.disconnect();
     this.ambience?.stop();
     this.ambience?.disconnect();
     this.bed?.disconnect();

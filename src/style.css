@@ -75,6 +75,57 @@ a {
   position: fixed;
   inset: 0;
 }
+#music-player {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 16px env(safe-area-inset-bottom);
+  background: linear-gradient(110deg, #101c16f5, #1b2a1ff5, #101c16f5);
+  border-top: 1px solid #d1f58a26;
+  box-shadow: 0 -8px 28px #0002;
+  backdrop-filter: blur(16px);
+  font-size: 12px;
+}
+.music-deck { display: flex; align-items: center; gap: 10px; width: min(100%, 380px); min-height: 52px; }
+.music-mark { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border: 1px solid #d1f58a26; border-radius: 9px; background: #d1f58a0d; color: #889c7d; }
+.music-mark svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+#music-player[data-playing="true"] .music-mark { color: var(--accent); }
+.music-selection { flex: 1; min-width: 0; }
+#music-status { display: block; font-size: 8px; font-weight: 600; letter-spacing: 1.8px; color: #9dae91; line-height: 13px; }
+.music-select-wrap { position: relative; }
+.music-select-wrap > svg { position: absolute; right: 5px; top: 6px; width: 12px; height: 12px; fill: none; stroke: #b8c9a7; stroke-width: 1.5; pointer-events: none; }
+#music-player select {
+  appearance: none;
+  width: 100%;
+  height: 24px;
+  min-height: 0;
+  margin: 0;
+  color: #f0f2e8;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  padding: 0 24px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+#music-player option { color: #f0f2e8; background: #1b2a1f; }
+#music-player button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; border-radius: 50%; }
+#music-toggle { color: #142019; background: var(--accent); border: 4px solid #1b2a1f; }
+#music-toggle:hover { color: #142019; background: #e4ffb7; }
+#music-prev, #music-next { color: #b6c6ab; }
+#music-prev:hover, #music-next:hover { background: #d1f58a12; }
+#music-player button svg { width: 18px; height: 18px; fill: currentColor; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+#music-player .music-pause { display: none; fill: none; stroke-width: 3; }
+#music-player[data-playing="true"] .music-play { display: none; }
+#music-player[data-playing="true"] .music-pause { display: block; }
 #stadium canvas {
   display: block;
   width: 100%;
@@ -87,6 +138,7 @@ a {
   height: 100%;
 }
 #ui {
+  bottom: calc(52px + env(safe-area-inset-bottom));
   z-index: 3;
   pointer-events: none;
   overflow: auto;
@@ -710,6 +762,8 @@ button[aria-busy="true"] { cursor: wait; opacity: 1; }
 .account-avatar { display: grid; place-items: center; width: 34px; height: 34px; background: var(--accent); color: #17281f; font-weight: 700; border-radius: 50%; }
 .guest-label { font-size: 10px; color: #aabb9c; }
 .account-join { min-height: 40px; padding: 0 14px; color: #17281f; background: var(--accent); font-size: 11px; }
+button.account-join:not(:disabled):hover,
+button.account-join:focus-visible { color: #17281f; background: #e1ffa9; }
 .signed-in-label { display: block; color: var(--accent); font-size: 11px; margin-bottom: 9px; }
 .account-save-card, .recovery-card { padding: 24px; border: 1px solid #a4be9035; background: #10231988; margin: 24px 0; }
 .account-save-card h2 { font-size: 18px; }
@@ -1672,4 +1726,8 @@ button[aria-busy="true"] { cursor: wait; opacity: 1; }
 
 @media (max-width: 1000px) and (min-height: 521px) {
   header { height: 170px; }
+}
+
+.hud-bottom, .replay-bottom, .draw-hint {
+  translate: 0 calc(-52px - env(safe-area-inset-bottom));
 }

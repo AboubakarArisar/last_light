@@ -67,6 +67,49 @@ let previous = 0;
 let toastTimer = 0;
 const abort = new AbortController();
 const sound = new Sound(save.settings);
+const musicPlayer = document.createElement("div");
+musicPlayer.id = "music-player";
+musicPlayer.setAttribute("role", "group");
+musicPlayer.setAttribute("aria-label", "Background music");
+musicPlayer.innerHTML = `<div class="music-deck"><div class="music-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4m4-8v12m4-15v18m4-15v12m4-8v4"/></svg></div><div class="music-selection"><span id="music-status">THE SOUNDTRACK</span><div class="music-select-wrap"><select id="music-track" aria-label="Choose song"><option value="0">Y Que Fue</option><option value="1">Waka Waka</option><option value="2">Daidai</option></select><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></div></div><button id="music-prev" type="button" aria-label="Previous song" title="Previous song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m19 5-10 7 10 7Z"/><path d="M6 5v14"/></svg></button><button id="music-toggle" type="button" aria-label="Play music" title="Play music"><svg class="music-play" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7Z"/></svg><svg class="music-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg></button><button id="music-next" type="button" aria-label="Next song" title="Next song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 5 10 7-10 7Z"/><path d="M18 5v14"/></svg></button></div>`;
+document.body.append(musicPlayer);
+const musicToggle = musicPlayer.querySelector<HTMLButtonElement>("#music-toggle")!;
+const musicTrack = musicPlayer.querySelector<HTMLSelectElement>("#music-track")!;
+sound.onMusicChange = () => {
+  const playing = sound.musicEnabled && sound.soundtrack && !sound.soundtrack.paused;
+  musicPlayer.dataset.playing = String(Boolean(playing));
+  musicToggle.setAttribute("aria-label", playing ? "Pause music" : "Play music");
+  musicToggle.title = playing ? "Pause music" : "Play music";
+  musicPlayer.querySelector("#music-status")!.textContent = playing ? "NOW PLAYING" : "THE SOUNDTRACK";
+  musicTrack.value = String(sound.track);
+};
+const startAudio = () => { void sound.start().catch(() => notify("Audio is unavailable. Try Play music again.")); };
+musicToggle.addEventListener("click", () => {
+  const playing = sound.musicEnabled && sound.soundtrack && !sound.soundtrack.paused;
+  sound.setMusicEnabled(!playing);
+  if (!playing) startAudio();
+}, { signal: abort.signal });
+musicPlayer.querySelector("#music-prev")!.addEventListener("click", () => {
+  sound.selectTrack((sound.track - 1 + sound.tracks.length) % sound.tracks.length);
+  sound.setMusicEnabled(true);
+  startAudio();
+}, { signal: abort.signal });
+musicPlayer.querySelector("#music-next")!.addEventListener("click", () => {
+  sound.selectTrack((sound.track + 1) % sound.tracks.length);
+  sound.setMusicEnabled(true);
+  startAudio();
+}, { signal: abort.signal });
+musicTrack.addEventListener("change", () => {
+  sound.selectTrack(Number(musicTrack.value));
+  sound.setMusicEnabled(true);
+  startAudio();
+}, { signal: abort.signal });
+// Unlock audio on the first interaction, including taps outside game buttons.
+const unlockAudio = (event: Event) => {
+  if (!musicPlayer.contains(event.target as Node) && sound.musicEnabled) startAudio();
+};
+document.addEventListener("pointerup", unlockAudio, { once: true, signal: abort.signal });
+document.addEventListener("keydown", unlockAudio, { once: true, signal: abort.signal });
 let view: Stadium;
 try {
   view = new Stadium(document.querySelector("#stadium")!, levels[5], save);
@@ -233,7 +276,6 @@ function screen(name: string) {
   paused = false;
   drawing.enabled = false;
   drawing.cancel();
-  sound.menu(name !== "play" && name !== "replay");
   document.body.dataset.page = name;
   if (name === "home") home();
   else if (name === "career") career();
@@ -282,7 +324,7 @@ function dailyScreen() {
 function customize() {
   const total = totalStars(save);
   const p = save.profile;
-  ui.innerHTML = `${header("customize")}<section class="page-content customize-page"><div class="page-heading"><div class="eyebrow">NORTHSTAR FC / PLAYER IDENTITY</div><h1>MAKE IT<br><em>YOUR OWN.</em></h1></div><form id="profile-form"><div class="form-row"><label>Player name<input name="name" maxlength="24" value="${escape(p.name)}" required></label><label>Shirt number<input name="number" type="number" min="1" max="99" value="${p.number}" required></label></div><label>Skin tone<select name="skin">${[
+  ui.innerHTML = `${header("customize")}<section class="page-content customize-page"><div class="page-heading"><div class="eyebrow">NORTHSTAR FC / PLAYER IDENTITY</div><h1>MAKE IT<br><em>YOUR OWN.</em></h1></div><form id="profile-form"><label>Player name<input name="name" maxlength="24" value="${escape(account.user ? accountName() : p.name)}" ${account.user ? "readonly" : "required"}></label><label>Skin tone<select name="skin">${[
     ["#bd8765", "Warm"],
     ["#e1b796", "Light"],
     ["#82593e", "Deep"],
@@ -294,17 +336,7 @@ function customize() {
     )
     .join(
       "",
-    )}</select></label><label>Hair<select name="hair"><option value="short" ${p.hair === "short" ? "selected" : ""}>Short crop</option><option value="shaved" ${p.hair === "shaved" ? "selected" : ""}>Shaved</option></select></label><div class="form-row"><label>Match kit<select name="kit">${[
-    ["#dae8c6", "Northstar home", 0],
-    ["#d5a46c", "Heritage gold", 12],
-    ["#9abacc", "Away blue", 30],
-    ["#dbc9d0", "Final edition", 75],
-  ]
-    .map(
-      ([v, n, min]) =>
-        `<option value="${v}" ${p.kit === v ? "selected" : ""} ${total < Number(min) ? "disabled" : ""}>${n}${total < Number(min) ? ` · ${min} ★` : ""}</option>`,
-    )
-    .join("")}</select></label><label>Boots<select name="boots">${[
+    )}</select></label><label>Hair<select name="hair"><option value="short" ${p.hair === "short" ? "selected" : ""}>Short crop</option><option value="shaved" ${p.hair === "shaved" ? "selected" : ""}>Shaved</option></select></label><label>Boots<select name="boots">${[
     ["#e3ff6c", "Volt", 0],
     ["#f0eee2", "Chalk", 6],
     ["#d37b48", "Copper", 20],
@@ -315,7 +347,7 @@ function customize() {
     )
     .join(
       "",
-    )}</select></label></div><label>Goal celebration<select name="celebration">${[
+    )}</select></label><label>Goal celebration<select name="celebration">${[
     ["arms", "Arms wide", 0],
     ["fist", "To the crowd", 9],
     ["slide", "Knee slide", 24],
@@ -326,7 +358,7 @@ function customize() {
     )
     .join(
       "",
-    )}</select></label><button class="primary" type="submit">Save identity <span>↗</span></button><p class="muted">Earn stars to unlock kits, boots and celebrations. Every unlock is cosmetic.</p></form></section>`;
+    )}</select></label><button class="primary" type="submit">Save identity <span>↗</span></button><p class="muted">Earn stars to unlock boots and celebrations. Every unlock is cosmetic.</p></form></section>`;
 }
 function stats() {
   const s = save.stats;
@@ -355,7 +387,7 @@ function stats() {
 }
 function settings() {
   const s = save.settings;
-  ui.innerHTML = `${header()}<section class="page-content settings-page"><div class="eyebrow">YOUR GAME. YOUR WAY.</div><h1>SETTINGS.</h1><form id="settings-form">${(["volume", "music", "crowd"] as const).map((k, i) => `<label class="slider-label">${["Master volume", "Menu music", "Stadium ambience"][i]}<output>${Math.round(s[k] * 100)}%</output><input name="${k}" aria-label="${["Master volume", "Menu music", "Stadium ambience"][i]}" type="range" min="0" max="1" step=".05" value="${s[k]}"></label>`).join("")}<label>Graphics<select name="graphics">${["auto", "low", "medium", "high"].map((v) => `<option ${s.graphics === v ? "selected" : ""}>${v}</option>`).join("")}</select></label><label class="toggle">Reduced camera motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label><label class="toggle">Haptic feedback<input name="vibration" type="checkbox" ${s.vibration ? "checked" : ""}></label><p class="muted">Mouse, touch or pen: draw from the ball.<br>Keyboard: arrow keys aim, Enter shoots, L switches lift, Escape pauses, R retries.</p></form><div class="settings-footer">${button("home", "← Back to home", "text-button")}${!account.user ? button("reset", "Reset guest progress", "danger") : button("account", "Manage account ↗", "text-button")}</div><small class="muted">${escape(account.error || account.status)}. ${account.user ? "Your account keeps your progress across devices." : "Sign in to back up progress to your account."}</small></section>`;
+  ui.innerHTML = `${header()}<section class="page-content settings-page"><div class="eyebrow">YOUR GAME. YOUR WAY.</div><h1>SETTINGS.</h1><form id="settings-form">${(["volume", "music", "crowd"] as const).map((k, i) => `<label class="slider-label">${["Master volume", "Music volume", "Stadium ambience"][i]}<output>${Math.round(s[k] * 100)}%</output><input name="${k}" aria-label="${["Master volume", "Music volume", "Stadium ambience"][i]}" type="range" min="0" max="1" step=".05" value="${s[k]}"></label>`).join("")}<label>Graphics<select name="graphics">${["auto", "low", "medium", "high"].map((v) => `<option ${s.graphics === v ? "selected" : ""}>${v}</option>`).join("")}</select></label><label class="toggle">Reduced camera motion<input name="reducedMotion" type="checkbox" ${s.reducedMotion ? "checked" : ""}></label><label class="toggle">Haptic feedback<input name="vibration" type="checkbox" ${s.vibration ? "checked" : ""}></label><p class="muted">Mouse, touch or pen: draw from the ball.<br>Keyboard: arrow keys aim, Enter shoots, L switches lift, Escape pauses, R retries.</p></form><div class="settings-footer">${button("home", "← Back to home", "text-button")}${!account.user ? button("reset", "Reset guest progress", "danger") : button("account", "Manage account ↗", "text-button")}</div><small class="muted">${escape(account.error || account.status)}. ${account.user ? "Your account keeps your progress across devices." : "Sign in to back up progress to your account."}</small></section>`;
 }
 function start(level: Level, newMode = "career", retry = false) {
   if (newMode === "friend" && (!account.user || !friendAttempt || retry)) {
@@ -558,7 +590,6 @@ function pause() {
     "beforeend",
     `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><div class="eyebrow">${levelLabel(sim.level)} · ${sim.level.title}</div><h1>HALF<br><em>A MOMENT.</em></h1>${button("resume", t.resume + " ↗", "primary")}${mode !== "friend" ? button("retry", "Restart moment", "secondary") : button("friend", "Challenge overview", "secondary")}${button("home", "Back to home", "text-button")}</section></div>`,
   );
-  sound.suspend();
 }
 function replayUI() {
   drawing.enabled = false;
@@ -795,7 +826,6 @@ ui.addEventListener(
       replayPaused = false;
       replayReturn = page;
       screen("replay");
-      sound.menu(false);
     } else if (action === "exit-replay") screen(replayReturn);
     else if (action === "replay-pause") {
       replayPaused = !replayPaused;
@@ -874,10 +904,9 @@ ui.addEventListener(
     e.preventDefault();
     const data = new FormData(e.target as HTMLFormElement);
     save.profile = {
-      name: String(data.get("name")).trim().slice(0, 24) || "Northstar",
-      number: Math.max(1, Math.min(99, Number(data.get("number")))),
+      ...save.profile,
+      name: account.user ? accountName() : String(data.get("name") ?? "").trim().slice(0, 24) || "Northstar",
       skin: String(data.get("skin")),
-      kit: String(data.get("kit")),
       boots: String(data.get("boots")),
       hair: String(data.get("hair")),
       celebration: String(data.get("celebration")),
@@ -936,7 +965,7 @@ window.addEventListener(
         first?.focus();
       }
     }
-    if ((e.target as HTMLElement).matches("input,select,textarea")) return;
+    if (musicPlayer.contains(e.target as Node) || (e.target as HTMLElement).matches("input,select,textarea")) return;
     if (page === "play") {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -983,6 +1012,8 @@ document.addEventListener(
       if (page === "play" && !paused) pause();
       replayPaused = true;
       sound.suspend();
+    } else if (sound.musicEnabled) {
+      startAudio();
     }
     previous = 0;
   },
@@ -1084,6 +1115,7 @@ window.addEventListener(
     view.renderer.setAnimationLoop(null);
     drawing.dispose();
     sound.dispose();
+    musicPlayer.remove();
     view.dispose();
     challengeRequest?.abort();
     abort.abort();
@@ -1095,6 +1127,7 @@ window.addEventListener(
   { signal: abort.signal },
 );
 screen(challengeId ? "friend" : "home");
+if (!document.hidden) startAudio();
 if (new URL(location.href).searchParams.has("challenge"))
   notify("This old challenge link is no longer supported. Ask your friend for a new invitation.");
 void account.initialize().catch(() => notify("Account initialization failed. Please reload and try again."));
